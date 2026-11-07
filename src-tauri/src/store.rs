@@ -50,11 +50,13 @@ pub struct Settings {
     pub mpv_path: Option<String>,
     pub vlc_path: Option<String>,
     pub auto_next: bool,
+    /// Buscar y compilar versiones nuevas en segundo plano (ver `update.rs`).
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { player: PlayerKind::Builtin, mpv_path: None, vlc_path: None, auto_next: true }
+        Settings { player: PlayerKind::Builtin, mpv_path: None, vlc_path: None, auto_next: true, auto_update: true }
     }
 }
 

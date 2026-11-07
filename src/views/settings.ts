@@ -5,7 +5,7 @@ import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
 import { setCrumbs } from "../shell";
 import { errMsg, h, icon, loadInto, skeleton, toast } from "../ui";
-import { checkForUpdates, onUpdateProgress, UpdateError } from "../updater";
+import { checkForUpdates, describe, installedVersion, onUpdate, short, updateState, type UpdateState } from "../updater";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
@@ -95,6 +95,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
   const mpvInput = pathInput(settings.mpvPath, "Automática");
   const vlcInput = pathInput(settings.vlcPath, "Automática");
   const autoNext = h("input", { type: "checkbox", class: "switch", role: "switch", checked: settings.autoNext });
+  const autoUpdate = h("input", { type: "checkbox", class: "switch", role: "switch", checked: settings.autoUpdate });
 
   const saveBtn: HTMLButtonElement = h(
     "button",
@@ -106,6 +107,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
           mpvPath: mpvInput.value.trim() || null,
           vlcPath: vlcInput.value.trim() || null,
           autoNext: autoNext.checked,
+          autoUpdate: autoUpdate.checked,
         };
         saveBtn.disabled = true;
         try {
@@ -170,7 +172,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
       ),
     ),
     h("div", { class: "settings-save" }, saveBtn),
-    updatesGroup(signal),
+    updatesGroup(signal, autoUpdate),
     group(
       "Reproductores externos",
       "Opcionales. La app los detecta solos o usa la ruta que indiques arriba.",
@@ -180,60 +182,88 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
   );
 }
 
-function updatesGroup(signal: AbortSignal): HTMLElement {
+function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLElement {
   const version = h("code", null, "…");
+  const branch = h("span", { class: "set-desc" });
   getVersion().then(
     (v) => {
       version.textContent = v;
     },
     (e: unknown) => console.warn("getVersion", e),
   );
+
   const status = h("p", { class: "set-status", attrs: { "aria-live": "polite" } });
+  const meter = h("span", { class: "meter set-meter", hidden: true }, h("i"));
   const checkBtn: HTMLButtonElement = h(
     "button",
     {
       class: "btn btn-sm",
-      onclick: async () => {
+      onclick: () => {
         checkBtn.disabled = true;
-        status.className = "set-status";
-        status.textContent = "Buscando actualizaciones…";
-        status.title = "";
-        const stop = onUpdateProgress((fraction) => {
-          if (signal.aborted) return;
-          status.textContent =
-            fraction === null ? "Descargando la actualización…" : `Descargando la actualización… ${Math.round(fraction * 100)} %`;
-        });
-        try {
-          const result = await checkForUpdates();
-          if (signal.aborted) return;
-          status.textContent =
-            result.kind === "ready"
-              ? `La versión ${result.version} ya está descargada. Pulsa «Reiniciar y actualizar» en la barra lateral.`
-              : result.kind === "available"
-                ? `Hay una versión nueva (${result.version}). En modo desarrollo no se descarga.`
-                : result.kind === "unpublished"
-                  ? "Todavía no hay ninguna versión publicada en GitHub."
-                  : "Tienes la última versión.";
-        } catch (e) {
-          // El detalle técnico (en inglés) queda en la consola y en el título del mensaje.
-          console.warn("checkForUpdates", e);
-          if (signal.aborted) return;
+        // Busca y, si hay algo nuevo, lo compila en segundo plano.
+        checkForUpdates(true).catch((e: unknown) => {
           status.className = "set-status set-status-error";
-          status.textContent = e instanceof UpdateError ? e.message : "No se pudo comprobar si hay actualizaciones.";
-          status.title = e instanceof UpdateError ? e.detail : errMsg(e);
-        } finally {
-          stop();
+          status.textContent = errMsg(e);
           checkBtn.disabled = false;
-        }
+        });
       },
     },
     icon("replay"),
     "Buscar",
   );
+
+  const show = (state: UpdateState) => {
+    if (signal.aborted) return;
+    status.className = state.estado === "error" ? "set-status set-status-error" : "set-status";
+    status.textContent = describe(state);
+    const busy = state.estado === "buscando" || state.estado === "compilando";
+    checkBtn.disabled = busy || state.estado === "lista";
+    meter.hidden = state.estado !== "compilando";
+    if (state.estado === "compilando") {
+      (meter.firstChild as HTMLElement).style.setProperty("--p", String(state.total ? state.paso / state.total : 0));
+    }
+  };
+
+  installedVersion().then(
+    (info) => {
+      if (signal.aborted) return;
+      if (!info) {
+        branch.textContent = "Compilación de desarrollo: no se actualiza sola.";
+        checkBtn.disabled = true;
+        autoUpdate.disabled = true;
+        return;
+      }
+      const date = info.fecha ? new Date(info.fecha).toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" }) : "";
+      branch.textContent = `Commit ${short(info.commit)} · rama ${info.rama}${date ? ` · ${date}` : ""}`;
+      show(updateState());
+    },
+    (e: unknown) => {
+      branch.textContent = errMsg(e);
+    },
+  );
+  const stop = onUpdate(show);
+  signal.addEventListener("abort", stop, { once: true });
+
   return group(
     "Actualizaciones",
-    "Las versiones nuevas se descargan solas desde GitHub; sólo hay que reiniciar para instalarlas.",
-    row("Versión instalada", version, checkBtn),
-    status,
+    "La app se compila desde la rama main de GitHub. Busca cambios al abrirse y cada 6 horas, compila la versión nueva en segundo plano y la instala al reiniciar.",
+    h(
+      "div",
+      { class: "set-row" },
+      h("div", { class: "set-text" }, h("span", { class: "set-label" }, "Versión instalada ", version), branch),
+      checkBtn,
+    ),
+    h(
+      "label",
+      { class: "set-row set-row-toggle" },
+      h(
+        "span",
+        { class: "set-text" },
+        h("span", { class: "set-label" }, "Actualizar automáticamente"),
+        h("span", { class: "set-desc" }, "Se aplica al pulsar Guardar cambios."),
+      ),
+      autoUpdate,
+    ),
+    h("div", { class: "set-status-wrap" }, status, meter),
   );
 }

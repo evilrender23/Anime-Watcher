@@ -11,8 +11,6 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/plugin-opener": "^2.7.0",
-    "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-updater": "^2.14.1",
     "hls.js": "^1.7.0"
   },
   "devDependencies": {

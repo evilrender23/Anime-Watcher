@@ -1965,6 +1965,29 @@ kbd {
   color: color-mix(in srgb, var(--red) 80%, var(--base));
 }
 
+.set-status-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.set-status-wrap:has(.set-status:empty) {
+  display: none;
+}
+
+.set-meter {
+  margin: -4px 14px 12px;
+}
+
+.set-label code {
+  margin-left: 4px;
+  font-size: var(--fs-caption);
+  color: var(--text-2);
+}
+
+.update-text .meter {
+  margin-top: 6px;
+}
+
 .set-status:empty {
   display: none;
 }

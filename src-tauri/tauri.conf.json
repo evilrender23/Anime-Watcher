@@ -38,7 +38,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -50,15 +49,16 @@
     "shortDescription": "Ver animé subtitulado al español",
     "longDescription": "Busca y reproduce animé subtitulado al español desde MonosChinos.",
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "nsis": { "languages": ["Spanish", "English"], "displayLanguageSelector": false }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyMzM0QzYzNjlDNUUwQUQKUldTdDRNVnBZMHd6VWhhc25TTlhyS2NwNTNiK1U5V1FSOFI3VE9uTjR0Z1l6aUgrelZjUm5OemIK",
-      "endpoints": ["https://github.com/evilrender23/Anime-Watcher/releases/latest/download/latest.json"],
-      "windows": { "installMode": "passive" }
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "languages": [
+          "Spanish",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
     }
   }
 }

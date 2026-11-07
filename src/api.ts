@@ -83,6 +83,8 @@ export interface Settings {
   vlcPath: string | null;
   /** Pasar al siguiente episodio al terminar (reproductor integrado). */
   autoNext: boolean;
+  /** Buscar y compilar versiones nuevas de `main` en segundo plano. */
+  autoUpdate: boolean;
 }
 
 export interface DetectedPlayers {

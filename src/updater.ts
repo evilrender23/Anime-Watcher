@@ -1,142 +1,119 @@
-// Actualizador automático: consulta el latest.json de la última release de GitHub
-// (configurado en tauri.conf.json), descarga la versión nueva en segundo plano y
-// ofrece reiniciar para instalarla. La firma del paquete la verifica el backend.
-//
-// Funciona igual en Windows (instalador NSIS/MSI), macOS (.app) y Linux (AppImage,
-// .deb o .rpm): el plugin elige la entrada de latest.json según el sistema y el tipo
-// de instalación. Los fallos se traducen a mensajes claros en español.
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+// Actualizaciones sin releases (como en Mod Engine): la app instalada con instalar.sh /
+// instalar.ps1 sabe de qué commit de `main` salió; el backend hace `git fetch`, relanza el
+// instalador para compilar la versión nueva en segundo plano y avisa con el evento
+// "actualizacion". Al cerrar la app, el instalador cambia a la versión nueva y la reabre.
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { errMsg, h, icon, toast } from "./ui";
 
-export type UpdateStatus =
-  | { kind: "none" }
-  /** No hay ninguna versión publicada en GitHub (latest.json no existe). */
-  | { kind: "unpublished" }
-  | { kind: "ready"; version: string }
-  /** Sólo en desarrollo: hay versión nueva, pero no se descarga ni se instala. */
-  | { kind: "available"; version: string };
-
-/** Error del actualizador con un mensaje para el usuario y el detalle técnico original. */
-export class UpdateError extends Error {
-  constructor(
-    message: string,
-    readonly detail: string,
-  ) {
-    super(message);
-  }
+export interface InstalledVersion {
+  commit: string;
+  rama: string;
+  fecha: string | null;
 }
 
-/** Progreso de la descarga (0–1) o null si el servidor no indica el tamaño. */
-type ProgressListener = (fraction: number | null) => void;
+export interface Commit {
+  sha: string;
+  mensaje: string | null;
+  fecha: string | null;
+}
 
-const CHECK_TIMEOUT_MS = 20_000;
+export type UpdateState =
+  | { estado: "inactiva" }
+  | { estado: "buscando" }
+  | { estado: "al_dia" }
+  | { estado: "nueva"; ultimo: Commit }
+  | { estado: "compilando"; paso: number; total: number; texto: string }
+  | { estado: "lista"; commit: string }
+  | { estado: "error"; mensaje: string };
 
+type Listener = (state: UpdateState) => void;
+
+let current: UpdateState = { estado: "inactiva" };
+const listeners = new Set<Listener>();
 let card: HTMLElement | null = null;
-/** Actualización ya descargada y lista para instalar. */
-let ready: Update | null = null;
-let running: Promise<UpdateStatus> | null = null;
-const progressListeners = new Set<ProgressListener>();
+/** El aviso de "lista" se cerró con "Más tarde": no se vuelve a mostrar solo. */
+let dismissed = false;
 
-/** Monta el aviso de actualización; en la app instalada busca versiones nuevas al arrancar. */
+export const short = (commit: string) => commit.slice(0, 7);
+
+/** Versión instalada; null en una compilación de desarrollo. */
+export const installedVersion = () => invoke<InstalledVersion | null>("update_info");
+
+/** Busca (y, si `install`, compila) la versión nueva. El resultado llega por onUpdate. */
+export const checkForUpdates = (install: boolean) => invoke<void>("update_check", { install });
+
+export const applyUpdate = () => invoke<void>("update_apply");
+
+export function updateState(): UpdateState {
+  return current;
+}
+
+/** Escucha los cambios de estado; devuelve la función para dejar de escuchar. */
+export function onUpdate(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function set(state: UpdateState): void {
+  current = state;
+  listeners.forEach((fn) => fn(state));
+  renderCard();
+}
+
+/** Monta el aviso de la barra lateral y se suscribe al estado del backend. */
 export function mountUpdater(host: HTMLElement): void {
   card = host;
-  if (import.meta.env.DEV) return;
-  checkForUpdates().catch((e: unknown) => console.warn("No se pudo buscar actualizaciones", e));
+  void listen<UpdateState>("actualizacion", (event) => set(event.payload)).catch((e: unknown) =>
+    console.warn("listen actualizacion", e),
+  );
+  invoke<UpdateState>("update_state").then(set, (e: unknown) => console.warn("update_state", e));
 }
 
-/** Escucha el progreso de la descarga en curso. Devuelve la función para dejar de escuchar. */
-export function onUpdateProgress(listener: ProgressListener): () => void {
-  progressListeners.add(listener);
-  return () => progressListeners.delete(listener);
+/** Texto corto para un estado (ajustes y aviso). */
+export function describe(state: UpdateState): string {
+  switch (state.estado) {
+    case "buscando":
+      return "Buscando actualizaciones…";
+    case "al_dia":
+      return "Tienes la última versión.";
+    case "nueva":
+      return `Hay una versión nueva (${short(state.ultimo.sha)}${state.ultimo.mensaje ? `: ${state.ultimo.mensaje}` : ""}).`;
+    case "compilando":
+      return state.total ? `Compilando la versión nueva · paso ${state.paso} de ${state.total}: ${state.texto}` : "Preparando la versión nueva…";
+    case "lista":
+      return `La versión ${state.commit} está lista. Se instala al reiniciar la app.`;
+    case "error":
+      return state.mensaje;
+    default:
+      return "";
+  }
 }
 
-/** Busca una versión nueva y la descarga. Si ya hay una búsqueda en curso, devuelve esa misma. */
-export function checkForUpdates(): Promise<UpdateStatus> {
-  if (ready) {
-    showCard(ready);
-    return Promise.resolve({ kind: "ready", version: ready.version });
-  }
-  if (!running) {
-    running = findAndDownload().finally(() => {
-      running = null;
-    });
-  }
-  return running;
-}
-
-async function findAndDownload(): Promise<UpdateStatus> {
-  let update: Update | null;
-  try {
-    update = await check({ timeout: CHECK_TIMEOUT_MS });
-  } catch (e) {
-    const detail = errMsg(e);
-    // Sin ninguna release publicada (o sin latest.json) no hay nada que instalar:
-    // no es un fallo de la app ni de la conexión.
-    if (isNoRelease(detail)) return { kind: "unpublished" };
-    throw new UpdateError(explain(detail), detail);
-  }
-  if (!update) return { kind: "none" };
-
-  if (import.meta.env.DEV) {
-    // En desarrollo no se instala nada: reemplazaría el binario de depuración.
-    await update.close().catch(() => {});
-    return { kind: "available", version: update.version };
-  }
-
-  let total = 0;
-  let received = 0;
-  const emit = (fraction: number | null) => progressListeners.forEach((fn) => fn(fraction));
-  try {
-    await update.download((event) => {
-      if (event.event === "Started") {
-        total = event.data.contentLength ?? 0;
-        emit(total ? 0 : null);
-      } else if (event.event === "Progress") {
-        received += event.data.chunkLength;
-        emit(total ? Math.min(1, received / total) : null);
-      } else {
-        emit(1);
-      }
-    });
-  } catch (e) {
-    const detail = errMsg(e);
-    throw new UpdateError(explain(detail), detail);
-  }
-  ready = update;
-  showCard(update);
-  return { kind: "ready", version: update.version };
-}
-
-/** latest.json no existe todavía (404) → todavía no se publicó ninguna versión. */
-function isNoRelease(detail: string): boolean {
-  return /valid release JSON|release.*not found|404/i.test(detail);
-}
-
-/** Traduce los errores del plugin (en inglés) a un mensaje para el usuario. */
-function explain(detail: string): string {
-  const d = detail.toLowerCase();
-  if (/signature|minisign|public key|pubkey/.test(d)) {
-    return "La actualización descargada no tiene una firma válida, así que no se instaló. Avisa al autor de la app.";
-  }
-  if (/platform .* was not found|target.*not found|platforms/.test(d)) {
-    return "La última versión publicada todavía no incluye tu sistema. Vuelve a intentarlo más tarde.";
-  }
-  if (/appimage|unsupported.*(linux|package|installer)|only .* supported/.test(d)) {
-    return "Esta instalación no se puede actualizar sola. Vuelve a instalar la app con el instalador de la web (AppImage, .deb o .rpm) para recibir actualizaciones.";
-  }
-  if (/permission|access is denied|read-only|eacces|eperm|operation not permitted/.test(d)) {
-    return "No hay permiso para reemplazar la app. Muévela a una carpeta donde puedas escribir (por ejemplo, Aplicaciones) y vuelve a intentarlo.";
-  }
-  if (/timed? ?out|timeout|dns|connect|network|request|tls|certificate|error sending/.test(d)) {
-    return "No se pudo conectar con GitHub. Revisa tu conexión e inténtalo de nuevo.";
-  }
-  return "No se pudo comprobar si hay actualizaciones.";
-}
-
-function showCard(update: Update): void {
+function renderCard(): void {
   const host = card;
   if (!host) return;
+  const state = current;
+  if (state.estado === "compilando") {
+    // Progreso discreto mientras compila en segundo plano.
+    const fraction = state.total ? state.paso / state.total : 0;
+    host.replaceChildren(
+      h("span", { class: "update-icon" }, icon("download")),
+      h(
+        "div",
+        { class: "update-text" },
+        h("strong", { class: "update-title" }, "Actualizando"),
+        h("span", { class: "update-desc" }, state.texto || "Preparando…"),
+        h("span", { class: "meter" }, h("i", { style: `--p:${fraction}` })),
+      ),
+    );
+    host.hidden = false;
+    return;
+  }
+  if (state.estado !== "lista" || dismissed) {
+    host.hidden = true;
+    return;
+  }
   const installBtn: HTMLButtonElement = h(
     "button",
     {
@@ -144,14 +121,10 @@ function showCard(update: Update): void {
       onclick: async () => {
         installBtn.disabled = true;
         try {
-          // En Windows el instalador cierra la app y la vuelve a abrir al terminar.
-          await update.install();
-          await relaunch();
+          await applyUpdate();
         } catch (e) {
           installBtn.disabled = false;
-          const detail = errMsg(e);
-          console.warn("update.install", detail);
-          toast(`No se pudo instalar la actualización. ${explain(detail)}`, "error");
+          toast(`No se pudo reiniciar: ${errMsg(e)}`, "error");
         }
       },
     },
@@ -163,14 +136,24 @@ function showCard(update: Update): void {
     h(
       "div",
       { class: "update-text" },
-      h("strong", { class: "update-title" }, `Versión ${update.version} lista`),
-      h("span", { class: "update-desc" }, "Se instala al reiniciar. Tu historial y tus ajustes se conservan."),
+      h("strong", { class: "update-title" }, `Versión ${state.commit} lista`),
+      h("span", { class: "update-desc" }, "Se instala al reiniciar. Tu lista, historial y ajustes se conservan."),
     ),
     h(
       "div",
       { class: "update-actions" },
       installBtn,
-      h("button", { class: "btn btn-ghost btn-sm", onclick: () => (host.hidden = true) }, "Más tarde"),
+      h(
+        "button",
+        {
+          class: "btn btn-ghost btn-sm",
+          onclick: () => {
+            dismissed = true;
+            host.hidden = true;
+          },
+        },
+        "Más tarde",
+      ),
     ),
   );
   host.hidden = false;

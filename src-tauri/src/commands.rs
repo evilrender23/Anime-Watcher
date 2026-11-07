@@ -12,11 +12,13 @@ use crate::player::{self, Detected, External};
 use crate::proxy::Proxy;
 use crate::site::{self, AnimeCard, AnimeDetail, EpisodeCard, EpisodeInfo};
 use crate::store::{HistoryEntry, HistoryMark, ListEntry, ListUpdate, Settings, Store};
+use crate::update::{self, Actualizador, Estado, VersionInstalada};
 
 pub struct AppState {
     pub http: Client,
     pub proxy: Proxy,
     pub store: Store,
+    pub actualizador: Actualizador,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -122,4 +124,28 @@ pub fn list_save(state: State<'_, AppState>, update: ListUpdate) -> Result<ListE
 #[tauri::command]
 pub fn list_remove(state: State<'_, AppState>, anime_url: String) -> Result<()> {
     state.store.list_remove(&anime_url)
+}
+
+/// Commit, rama y fecha de esta copia; `None` en una compilación de desarrollo.
+#[tauri::command]
+pub fn update_info() -> Option<VersionInstalada> {
+    update::version_instalada()
+}
+
+#[tauri::command]
+pub fn update_state(state: State<'_, AppState>) -> Estado {
+    state.actualizador.estado()
+}
+
+/// Busca en segundo plano; el resultado llega con el evento `actualizacion`.
+#[tauri::command]
+pub fn update_check(state: State<'_, AppState>, install: bool) {
+    state.actualizador.buscar_ahora(install);
+}
+
+/// Cierra la app para que el instalador cambie a la versión lista y la vuelva a abrir.
+#[tauri::command]
+pub fn update_apply(app: tauri::AppHandle, state: State<'_, AppState>) {
+    state.actualizador.aplicar();
+    app.exit(0);
 }
