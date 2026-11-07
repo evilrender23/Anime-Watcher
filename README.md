@@ -24,7 +24,7 @@ Los servidores exigen cabeceras como `Referer`, y el WebView no puede enviarlas.
 
 ## Instalación
 
-Un solo comando descarga el código de la rama `main`, lo compila en tu equipo y lo instala. Si falta algo (Git, Node.js 20.19+, Rust y, según el sistema, las Build Tools de C++, las herramientas de Xcode o WebKitGTK), pregunta antes de instalarlo.
+Un solo comando descarga el código de la rama `main`, lo compila en tu equipo y lo instala. Si falta algo necesario para compilar (Git, Node.js 20.19+, Rust y, según el sistema, las Build Tools de C++, las herramientas de Xcode o WebKitGTK), lo instala solo avisando de que es una dependencia. Rust va con rustup a `~/.cargo` y Node.js a la carpeta de la app, sin tocar el sistema; las herramientas de Xcode, los paquetes de Linux y las Build Tools piden permiso con la ventana del sistema.
 
 **Windows** (PowerShell):
 
@@ -43,7 +43,7 @@ También desde un clon: `bash Anime-Watcher/instalar.sh` o `powershell -Executio
 | | Código y caché | App | Acceso |
 |---|---|---|---|
 | Windows | `%LOCALAPPDATA%\AnimeWatcher\codigo` | `%LOCALAPPDATA%\AnimeWatcher\app` | menú Inicio |
-| macOS | `~/Library/Application Support/AnimeWatcher/codigo` | `…/AnimeWatcher/app/Anime Watcher.app` | `~/Applications/Anime Watcher.app` (Launchpad y Spotlight) |
+| macOS | `~/Library/Application Support/AnimeWatcher/codigo` | `/Applications/Anime Watcher.app` (o `~/Applications` si no puedes escribir en `/Applications`) | Launchpad, Spotlight y la carpeta Aplicaciones |
 | Linux | `~/.local/share/AnimeWatcher/codigo` | `~/.local/share/AnimeWatcher/app` | menú de aplicaciones y `anime-watcher` en `~/.local/bin` |
 
 Opciones: `--repo`, `--rama`, `--destino` y `--bin` (en Windows `-Repo`, `-Rama` y `-Destino`). La primera compilación tarda unos minutos; las siguientes aprovechan la caché.
@@ -57,7 +57,7 @@ Si quieres usar un reproductor externo:
 
 ## Actualizaciones automáticas
 
-No hay releases: cada equipo compila la rama `main`. La app instalada guarda en `app/version.json` el commit del que salió. Un minuto después de abrirse y cada 6 horas hace `git fetch` en `codigo/` y, si hay commits nuevos, relanza el instalador en segundo plano (`--actualizar`). Este compila la versión nueva en `app.nuevo` mientras sigues usando la app, que muestra el progreso en la barra lateral. Cuando termina, aparece **Reiniciar y actualizar**: la app se cierra, el instalador cambia `app/` por la versión nueva y la vuelve a abrir. Si la cierras sin más, el cambio se aplica igual y la próxima vez que la abras ya es la nueva.
+No hay releases: cada equipo compila la rama `main`. La app instalada guarda en `version.json` el commit del que salió (en Mac, dentro de `Anime Watcher.app/Contents/Resources`). Un minuto después de abrirse y cada 6 horas hace `git fetch` en `codigo/` y, si hay commits nuevos, relanza el instalador en segundo plano (`--actualizar`). Este compila la versión nueva aparte mientras sigues usando la app, que muestra el progreso en la barra lateral. Cuando termina, aparece **Reiniciar y actualizar**: la app se cierra, el instalador la cambia por la versión nueva y la vuelve a abrir. Si la cierras sin más, el cambio se aplica igual y la próxima vez que la abras ya es la nueva.
 
 En **Ajustes → Actualizaciones** ves el commit instalado, puedes buscar a mano y desactivar las actualizaciones automáticas. El progreso queda en `registro/actualizacion.log` y la salida de git, npm y cargo en `registro/compilacion.log`. Tu lista, historial y ajustes se guardan aparte y no se tocan.
 

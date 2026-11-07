@@ -14,17 +14,18 @@
 # ~/.local/share/AnimeWatcher en Linux) deja:
 #   codigo/    el clon, con node_modules y la caché de cargo (src-tauri/target/) para que la
 #              siguiente compilación sea rápida;
-#   app/       la app (Mac: Anime Watcher.app; Linux: anime-watcher) y version.json (commit, fecha,
-#              rama, repo);
+#   app/       sólo en Linux: anime-watcher, su icono y version.json (commit, fecha, rama, repo,
+#              destino);
 #   registro/  actualizacion.log, con las líneas que lee la app (PASO n/total, LISTO, APLICADO,
 #              ERROR), y compilacion.log, con la salida de git, npm y cargo.
-# En Mac crea ~/Applications/Anime Watcher.app (abre la de app/); en Linux, enlaza `anime-watcher`
-# en --bin (por defecto ~/.local/bin) y crea un lanzador en el menú de aplicaciones.
+# En Mac la app va directamente a /Applications/Anime Watcher.app (o a ~/Applications si no se
+# puede escribir en /Applications), con version.json dentro (Contents/Resources). En Linux enlaza
+# `anime-watcher` en --bin (por defecto ~/.local/bin) y crea un lanzador en el menú de aplicaciones.
 #
-# Pregunta antes de instalar lo que falte: Mac, las herramientas de línea de comandos de Xcode;
-# Linux, un compilador de C, git, curl, pkg-config y WebKitGTK (con el gestor de paquetes y sudo);
-# los dos, Rust. Node.js (dependencia para compilar la interfaz) se instala sin preguntar, avisando,
-# en <destino>/node si el sistema no tiene uno de 20.19 o más nuevo.
+# Instala solo, avisando, todo lo que falte para compilar: en Mac, las herramientas de línea de
+# comandos de Xcode (con la ventana de macOS); en Linux, un compilador de C, git, curl, pkg-config y
+# WebKitGTK (con el gestor de paquetes: sudo o la ventana de contraseña); en los dos, Rust (rustup,
+# en ~/.cargo) y Node.js (el oficial, en <destino>/node, si no hay uno de 20.19 o más nuevo).
 #
 # Actualizaciones: la app lo relanza con --actualizar --esperar-pid <su pid> --relanzar. Así no
 # pregunta ni instala requisitos, compila en app.nuevo, escribe LISTO y, cuando la app se cierra,
@@ -88,6 +89,12 @@ fi
 CODIGO="$DESTINO/codigo"
 APP="$DESTINO/app"
 NUEVO="$DESTINO/app.nuevo"
+# Mac: el .app instalado en la carpeta de aplicaciones.
+# (ANIME_WATCHER_APLICACIONES sólo para pruebas.)
+if [ -n "${ANIME_WATCHER_APLICACIONES:-}" ]; then APLICACIONES="$ANIME_WATCHER_APLICACIONES"
+elif [ -w /Applications ]; then APLICACIONES=/Applications
+else APLICACIONES="$HOME/Applications"; fi
+APP_MAC="$APLICACIONES/$NOMBRE_APP.app"
 REGISTRO="$DESTINO/registro"
 LOG="$REGISTRO/compilacion.log"
 ESTADO="$REGISTRO/actualizacion.log"
@@ -114,6 +121,7 @@ cargar_rutas() {
 }
 cargar_rutas
 [ -x "$NODE_PROPIO/bin/node" ] && export PATH="$NODE_PROPIO/bin:$PATH"
+[ -d "${CARGO_HOME:-$HOME/.cargo}/bin" ] && export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
 
 anotar() { printf '%s\n' "$1" >> "$ESTADO"; }
 paso() {
@@ -183,30 +191,48 @@ hay_node() {
     [ "$mayor" -gt 22 ] || { [ "$mayor" -eq 22 ] && [ "$menor" -ge 12 ]; } || { [ "$mayor" -eq 20 ] && [ "$menor" -ge 19 ]; }
 }
 
+# macOS sólo deja instalarlas con su propia ventana (o con sudo): se abre y se espera hasta 1 h.
 instalar_xcode() {
+    local i
     xcode-select --install >/dev/null 2>&1
-    echo 'Acepta la ventana de macOS que pide instalar las herramientas de línea de comandos; se espera a que acabe…'
-    until hay_xcode; do sleep 5; done
+    $INTERACTIVO && echo 'Acepta la ventana de macOS que pide instalar las herramientas de línea de comandos; se espera a que acabe…'
+    for i in $(seq 1 720); do hay_xcode && return 0; sleep 5; done
+    fallar 'No se instalaron las herramientas de línea de comandos de Xcode: acepta la ventana de macOS (o ejecuta xcode-select --install) y vuelve a intentarlo.'
+}
+
+# Como administrador: sudo en la terminal; sin terminal (actualización lanzada por la app), sudo sin
+# contraseña si está configurado o, si no, la ventana de contraseña del escritorio (pkexec).
+como_admin() {
+    if [ "$(id -u)" = 0 ]; then "$@"
+    elif $INTERACTIVO; then sudo "$@" < /dev/tty
+    elif sudo -n true 2>/dev/null; then sudo -n "$@"
+    elif tiene pkexec && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then pkexec "$@"
+    else fallar 'Hacen falta paquetes del sistema y no hay forma de pedir la contraseña: ejecuta el comando de instalación en una terminal.'
+    fi
 }
 
 # Los nombres de paquete no llevan espacios: se separan a propósito por palabras.
 # shellcheck disable=SC2086
 instalar_sistema() {
     case "$PM" in
-        apt) sudo apt-get update && sudo apt-get install -y $PAQUETES ;;
-        dnf) sudo dnf install -y $PAQUETES ;;
-        pacman) sudo pacman -S --needed --noconfirm $PAQUETES ;;
-        zypper) sudo zypper install -y $PAQUETES ;;
+        apt) como_admin apt-get update && como_admin env DEBIAN_FRONTEND=noninteractive apt-get install -y $PAQUETES ;;
+        dnf) como_admin dnf install -y $PAQUETES ;;
+        pacman) como_admin pacman -S --needed --noconfirm $PAQUETES ;;
+        zypper) como_admin zypper --non-interactive install $PAQUETES ;;
         *) fallar "No se reconoce el gestor de paquetes: instala a mano un compilador de C, git, curl, pkg-config y WebKitGTK 4.1 (https://v2.tauri.app/start/prerequisites/)." ;;
     esac
 }
 
+# Rust con rustup (el instalador oficial) en ~/.cargo y ~/.rustup, sin sudo y sin preguntas.
 instalar_rust() {
     if tiene rustup; then
+        ejecutar "$DESTINO" rustup toolchain install stable --profile minimal || fallar "No se pudo instalar Rust (detalles en $LOG)."
         ejecutar "$DESTINO" rustup default stable
     else
-        ejecutar "$DESTINO" bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+        ejecutar "$DESTINO" bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal" \
+            || fallar "No se pudo instalar Rust (detalles en $LOG)."
     fi
+    export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 }
 
 # Node.js LTS oficial de nodejs.org en <destino>/node, con su SHA-256 comprobado. No usa sudo, brew
@@ -236,58 +262,45 @@ instalar_node() {
     export PATH="$NODE_PROPIO/bin:$PATH"
 }
 
-# Node.js sólo se usa para compilar la interfaz: si falta, se instala sin preguntar, avisando.
-asegurar_node() {
-    hay_node && return 0
-    local aviso="Node.js es una dependencia para compilar Anime Watcher y no se encontró (o es anterior a 20.19): se instala en $NODE_PROPIO"
-    anotar "PASO 1/$TOTAL Instalando Node.js (dependencia necesaria para compilar)"
-    $INTERACTIVO && printf '\033[33m%s\033[0m\n' "$aviso"
-    printf '%s\n' "$aviso" >> "$LOG"
-    instalar_node
-    hay_node || fallar "Se instaló Node.js en $NODE_PROPIO, pero no funciona (detalles en $LOG)."
-    $INTERACTIVO && printf '\033[32mNode.js %s instalado.\033[0m\n' "$(node --version)"
-    return 0
-}
-
-# Node.js va aparte (asegurar_node): se instala sin preguntar.
+# Todo lo que falte se instala solo, avisando de qué es y para qué hace falta. Node.js va aparte
+# (asegurar_node) porque se instala en <destino>/node.
 if $LINUX; then REQUISITOS='sistema rust'; else REQUISITOS='xcode rust'; fi
 nombre_de() {
     case "$1" in
-        xcode) echo 'Herramientas de línea de comandos de Xcode (con Git)' ;;
-        sistema) echo 'Compilador de C, Git, curl, pkg-config y WebKitGTK (con sudo)' ;;
+        xcode) echo 'las herramientas de línea de comandos de Xcode (compilador de C y Git)' ;;
+        sistema) echo 'un compilador de C, Git, curl, pkg-config y WebKitGTK (paquetes del sistema)' ;;
         rust) echo 'Rust (rustup)' ;;
-        node) echo 'Node.js 20.19+ o 22.12+' ;;
     esac
 }
 hay() { "hay_$1"; }
 
+avisar() {
+    $INTERACTIVO && printf '\033[33m%s\033[0m\n' "$1"
+    printf '%s\n' "$1" >> "$LOG"
+}
+
 comprobar_requisitos() {
-    local faltan='' nombres='' r respuesta si
+    local r
     for r in $REQUISITOS; do
-        hay "$r" || { faltan="$faltan $r"; nombres="$nombres${nombres:+, }$(nombre_de "$r")"; }
-    done
-    [ -z "$faltan" ] && return 0
-    $INTERACTIVO || fallar "Falta $nombres (o no está en el PATH de la app). Vuelve a ejecutar el comando de instalación en una terminal."
-    printf '\033[33mFalta: %s\033[0m\n' "$nombres"
-    # Con `curl | bash` la entrada es el propio script: se pregunta en la terminal.
-    printf '¿Instalarlo? [T]odo / [u]no a uno / [n]ada '
-    read -r respuesta < /dev/tty
-    respuesta=$(printf '%s' "$respuesta" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
-    for r in $faltan; do
         hay "$r" && continue
-        case "$respuesta" in
-            ''|t|todo|s|si|sí) si=true ;;
-            u*)
-                printf '¿Instalar %s? [S/n] ' "$(nombre_de "$r")"
-                read -r si < /dev/tty
-                case "$si" in [nN]*) si=false ;; *) si=true ;; esac ;;
-            *) si=false ;;
-        esac
-        $si || fallar "Sin $(nombre_de "$r") no se puede compilar Anime Watcher."
-        echo "Instalando $(nombre_de "$r")…"
+        anotar "PASO 1/$TOTAL Instalando $(nombre_de "$r") (dependencia necesaria para compilar)"
+        avisar "Dependencia necesaria para compilar Anime Watcher: falta $(nombre_de "$r"); se instala ahora."
         "instalar_$r"
         hay "$r" || fallar "Se instaló $(nombre_de "$r"), pero no aparece: abre una terminal nueva y vuelve a ejecutar el instalador."
+        $INTERACTIVO && printf '\033[32mListo: %s.\033[0m\n' "$(nombre_de "$r")"
     done
+    return 0
+}
+
+# Node.js sólo se usa para compilar la interfaz: si falta, se instala en <destino>/node, avisando.
+asegurar_node() {
+    hay_node && return 0
+    anotar "PASO 1/$TOTAL Instalando Node.js (dependencia necesaria para compilar)"
+    avisar "Dependencia necesaria para compilar Anime Watcher: falta Node.js (20.19 o más nuevo); se instala en $NODE_PROPIO."
+    instalar_node
+    hay_node || fallar "Se instaló Node.js en $NODE_PROPIO, pero no funciona (detalles en $LOG)."
+    $INTERACTIVO && printf '\033[32mListo: Node.js %s.\033[0m\n' "$(node --version)"
+    return 0
 }
 
 # ---------------------------------------------------------------- código
@@ -340,28 +353,12 @@ LANZADOR
     return 0
 }
 
-# Un .app mínimo en ~/Applications que abre la de app/ (así Launchpad y Spotlight la encuentran y
-# la de verdad se puede cambiar sin tocar este acceso). Sin firma: macOS lo deja abrir porque se creó en local.
-crear_app_mac() {
-    local acceso="$HOME/Applications/$NOMBRE_APP.app" icono
-    rm -rf "$acceso"
-    mkdir -p "$acceso/Contents/MacOS" "$acceso/Contents/Resources" || return 1
-    icono=$(find "$APP/$NOMBRE_APP.app/Contents/Resources" -maxdepth 1 -name '*.icns' 2>/dev/null | head -1)
-    [ -n "$icono" ] && cp "$icono" "$acceso/Contents/Resources/icon.icns"
-    cat > "$acceso/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>$NOMBRE_APP</string>
-  <key>CFBundleIdentifier</key><string>com.evilrender23.animewatcher.acceso</string>
-  <key>CFBundleExecutable</key><string>abrir</string>
-  <key>CFBundleIconFile</key><string>icon.icns</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>LSUIElement</key><true/>
-</dict></plist>
-PLIST
-    printf '#!/bin/bash\nexec open "%s/%s.app" --args "$@"\n' "$APP" "$NOMBRE_APP" > "$acceso/Contents/MacOS/abrir"
-    chmod +x "$acceso/Contents/MacOS/abrir"
+# Restos de la versión anterior de este instalador en Mac: la app en <destino>/app y el acceso
+# que la abría desde ~/Applications (sólo si es ese acceso, nunca la app de verdad).
+limpiar_mac_antiguo() {
+    local acceso="$HOME/Applications/$NOMBRE_APP.app"
+    if [ "$acceso" != "$APP_MAC" ] && [ -f "$acceso/Contents/MacOS/abrir" ]; then rm -rf "$acceso"; fi
+    rm -rf "$APP"
 }
 
 # Restos del instalador anterior (basado en releases): el AppImage suelto.
@@ -371,8 +368,11 @@ limpiar_instalacion_antigua() {
 
 # ---------------------------------------------------------------- actualizar
 
-# La app que se lanzó desde esta instalación.
-procesos_de_la_app() { pgrep -f -- "$APP/" >/dev/null 2>&1; }
+# La app que se lanzó desde esta instalación (y, en Mac, la de la carpeta de aplicaciones).
+procesos_de_la_app() {
+    pgrep -f -- "$APP/" >/dev/null 2>&1 && return 0
+    ! $LINUX && pgrep -f -- "$APP_MAC/Contents/MacOS/" >/dev/null 2>&1
+}
 
 esperar_pid() {
     if [ "$ESPERAR_PID" -gt 0 ] 2>/dev/null; then
@@ -397,7 +397,7 @@ abrir_app() {
         # Sin la terminal ni este script: sigue abierta cuando acaban.
         (cd "$HOME" && setsid "$APP/$BINARIO" >/dev/null 2>&1 < /dev/null &)
     else
-        open "$APP/$NOMBRE_APP.app" >/dev/null 2>&1
+        open "$APP_MAC" >/dev/null 2>&1
     fi
 }
 
@@ -466,25 +466,47 @@ principal() {
         cp "$CODIGO/src-tauri/icons/128x128.png" "$NUEVO/icon.png" 2>/dev/null
     else
         cp -R "$compilado/bundle/macos/$NOMBRE_APP.app" "$NUEVO/" || fallar 'No se pudo copiar lo compilado.'
+    fi
+    local version
+    version=$(printf '{\n  "commit": %s,\n  "fecha": %s,\n  "rama": %s,\n  "repo": %s,\n  "destino": %s\n}\n' \
+        "$(json "$commit")" "$(json "$fecha")" "$(json "$RAMA")" "$(json "$origen")" "$(json "$DESTINO")")
+    if $LINUX; then
+        printf '%s\n' "$version" > "$NUEVO/version.json"
+    else
+        printf '%s\n' "$version" > "$NUEVO/$NOMBRE_APP.app/Contents/Resources/version.json"
+        # Añadir version.json rompe el sello de la firma: se vuelve a firmar (ad hoc, en local).
+        ejecutar "$NUEVO" codesign --force --deep --sign - "$NUEVO/$NOMBRE_APP.app" || fallar "No se pudo firmar la app (detalles en $LOG)"
         # Lo compilado aquí no trae cuarentena, pero por si acaso.
         xattr -dr com.apple.quarantine "$NUEVO" 2>/dev/null
     fi
-    printf '{\n  "commit": %s,\n  "fecha": %s,\n  "rama": %s,\n  "repo": %s\n}\n' \
-        "$(json "$commit")" "$(json "$fecha")" "$(json "$RAMA")" "$(json "$origen")" > "$NUEVO/version.json"
     anotar "LISTO $commit"
 
-    if [ -d "$APP" ]; then
+    local instalada="$APP"
+    $LINUX || instalada="$APP_MAC"
+    if [ -d "$instalada" ] || [ -d "$APP" ]; then
         paso 6 'Esperando a que se cierre la app para cambiar de versión'
         fase esperando
         esperar_cierre
     else
-        paso 6 "Instalando en $APP"
+        paso 6 "Instalando en $instalada"
     fi
     fase cambiando
-    rm -rf "$APP.anterior"
-    [ -d "$APP" ] && mv "$APP" "$APP.anterior"
-    mv "$NUEVO" "$APP" || { [ -d "$APP.anterior" ] && mv "$APP.anterior" "$APP"; fallar "No se pudo instalar en $APP."; }
-    rm -rf "$APP.anterior"
+    if $LINUX; then
+        rm -rf "$APP.anterior"
+        [ -d "$APP" ] && mv "$APP" "$APP.anterior"
+        mv "$NUEVO" "$APP" || { [ -d "$APP.anterior" ] && mv "$APP.anterior" "$APP"; fallar "No se pudo instalar en $APP."; }
+        rm -rf "$APP.anterior"
+    else
+        # La versión anterior se guarda fuera de la carpeta de aplicaciones hasta que la nueva está en su sitio.
+        mkdir -p "$APLICACIONES" || fallar "No se puede crear $APLICACIONES."
+        rm -rf "$DESTINO/anterior.app"
+        [ -d "$APP_MAC" ] && { mv "$APP_MAC" "$DESTINO/anterior.app" || fallar "No se pudo mover la versión anterior de $APP_MAC."; }
+        if ! mv "$NUEVO/$NOMBRE_APP.app" "$APP_MAC"; then
+            [ -d "$DESTINO/anterior.app" ] && mv "$DESTINO/anterior.app" "$APP_MAC"
+            fallar "No se pudo instalar en $APP_MAC."
+        fi
+        rm -rf "$DESTINO/anterior.app" "$NUEVO"
+    fi
 
     if $LINUX; then
         paso 7 "Creando el acceso en el menú y enlazando $BINARIO en $BIN"
@@ -493,8 +515,10 @@ principal() {
         crear_lanzador_linux || echo 'Aviso: no se pudo crear el lanzador del menú de aplicaciones.'
         limpiar_instalacion_antigua
     else
-        paso 7 "Creando ~/Applications/$NOMBRE_APP.app"
-        crear_app_mac || echo "Aviso: no se pudo crear ~/Applications/$NOMBRE_APP.app."
+        paso 7 'Quitando restos de instalaciones anteriores'
+        limpiar_mac_antiguo
+        # Para que Launchpad y Spotlight la vean al momento.
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_MAC" >/dev/null 2>&1
     fi
     fase hecho
     anotar "APLICADO $commit"
@@ -502,7 +526,7 @@ principal() {
     rm -f "$NO_RELANZAR"
     $INTERACTIVO || return 0
 
-    printf '\033[32mAnime Watcher %s instalado en %s.\033[0m\n' "${commit:0:7}" "$APP"
+    printf '\033[32mAnime Watcher %s instalado en %s.\033[0m\n' "${commit:0:7}" "$instalada"
     if $LINUX; then
         echo "Ábrelo desde el menú de aplicaciones o con:  $BINARIO"
         case ":$PATH:" in
@@ -510,7 +534,7 @@ principal() {
             *) printf '\033[33m%s no está en el PATH: añade  export PATH="%s:$PATH"  a tu ~/.bashrc o ~/.zshrc.\033[0m\n' "$BIN" "$BIN" ;;
         esac
     else
-        echo "Ábrelo desde Launchpad, Spotlight o ~/Applications/$NOMBRE_APP.app"
+        echo "Ábrelo desde Launchpad, Spotlight o la carpeta Aplicaciones."
     fi
     echo 'Se actualiza sola: cuando haya cambios en GitHub, los compila y los instala al reiniciarla.'
 }

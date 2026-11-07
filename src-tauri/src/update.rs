@@ -2,9 +2,11 @@
 //! Anime Watcher desde la rama `main` con el instalador de la raíz del repositorio
 //! (`instalar.sh` / `instalar.ps1`).
 //!
-//! - El instalador deja `<destino>/app` (la app y `version.json`) y el clon en
-//!   `<destino>/codigo`. `version.json` dice de qué commit y rama salió esta copia. Sin él es
-//!   una compilación de desarrollo (`tauri dev`, `target/release`): nunca se actualiza sola.
+//! - El instalador deja la app (en Mac, `/Applications/Anime Watcher.app` con `version.json` en
+//!   `Contents/Resources`; en Windows y Linux, `<destino>/app` con `version.json` al lado) y el
+//!   clon en `<destino>/codigo`. `version.json` dice de qué commit y rama salió esta copia y
+//!   dónde está `<destino>`. Sin él es una compilación de desarrollo (`tauri dev`,
+//!   `target/release`): nunca se actualiza sola.
 //! - Para saber si hay algo nuevo se hace `git fetch` en el clon, así que funciona también con
 //!   repositorios privados usando las credenciales que ya tenga git.
 //! - Para actualizar se lanza el instalador de la rama con `--actualizar --esperar-pid <nosotros>
@@ -42,6 +44,9 @@ pub struct VersionInstalada {
     pub rama: String,
     #[serde(default)]
     pub fecha: Option<String>,
+    /// Carpeta con `codigo/` y `registro/`. Sin ella (instalaciones antiguas), la de encima de `app/`.
+    #[serde(default)]
+    pub destino: Option<PathBuf>,
 }
 
 fn rama_por_defecto() -> String {
@@ -167,21 +172,29 @@ fn git(carpeta: &Path, argumentos: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&salida.stdout).into_owned())
 }
 
-/// `<destino>/app`: la primera carpeta por encima del ejecutable que tenga `version.json`
-/// (en macOS el ejecutable está dentro de `app/Anime Watcher.app/Contents/MacOS`).
-fn carpeta_app() -> Option<PathBuf> {
+/// `version.json` de esta copia: junto al ejecutable (Windows, Linux), en
+/// `Anime Watcher.app/Contents/Resources` (Mac) o, en instalaciones antiguas de Mac, junto al `.app`.
+fn archivo_version() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    exe.ancestors().skip(1).take(4).find(|d| d.join("version.json").is_file()).map(Path::to_path_buf)
+    exe.ancestors()
+        .skip(1)
+        .take(4)
+        .flat_map(|d| [d.join("version.json"), d.join("Resources").join("version.json")])
+        .find(|f| f.is_file())
 }
 
 /// La versión instalada, o `None` en una compilación de desarrollo.
 pub fn version_instalada() -> Option<VersionInstalada> {
-    interpretar_version(&fs::read_to_string(carpeta_app()?.join("version.json")).ok()?)
+    interpretar_version(&fs::read_to_string(archivo_version()?).ok()?)
 }
 
-/// `<destino>`: la carpeta con `app/`, `codigo/` y `registro/`.
+/// `<destino>`: la carpeta con `codigo/` y `registro/`.
 fn destino() -> Option<PathBuf> {
-    carpeta_app()?.parent().map(Path::to_path_buf)
+    if let Some(destino) = version_instalada()?.destino {
+        return Some(destino);
+    }
+    // Instalaciones antiguas: `<destino>/app/version.json`.
+    archivo_version()?.parent()?.parent().map(Path::to_path_buf)
 }
 
 fn registro(destino: &Path) -> PathBuf {
@@ -411,6 +424,8 @@ mod tests {
         assert_eq!(v.commit, "1e648a248962");
         assert_eq!(interpretar_version("{ \"commit\": \"abcdef12\" }").unwrap().rama, "main");
         assert!(interpretar_version("{}").is_none());
+        let d = interpretar_version("{ \"commit\": \"abcdef12\", \"destino\": \"/x/AnimeWatcher\" }").unwrap();
+        assert_eq!(d.destino.as_deref(), Some(Path::new("/x/AnimeWatcher")));
         assert!(mismo_commit("1e648a2", "1E648A248962af"));
         assert!(!mismo_commit("1e648a2", "1e648a3ffff"));
         assert!(!mismo_commit("1e6", "1e6"), "demasiado corto para comparar");

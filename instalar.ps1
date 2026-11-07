@@ -12,14 +12,14 @@
 # En <Destino> (por defecto %LOCALAPPDATA%\AnimeWatcher) deja:
 #   codigo\    el clon, con node_modules y la caché de cargo (src-tauri\target\) para que la siguiente
 #              compilación sea rápida;
-#   app\       anime-watcher.exe y version.json (commit, fecha, rama, repo);
+#   app\       anime-watcher.exe y version.json (commit, fecha, rama, repo, destino);
 #   registro\  actualizacion.log, con las líneas que lee la app (PASO n/total, LISTO, APLICADO,
 #              ERROR), y compilacion.log, con la salida de git, npm y cargo.
 # Crea «Anime Watcher» en el menú Inicio.
 #
-# Pregunta antes de instalar con winget lo que falte: Git, las Build Tools de Visual Studio con C++ y
-# Rust. Node.js (dependencia para compilar la interfaz) se instala sin preguntar, avisando, en
-# <Destino>\node si el sistema no tiene uno de 20.19 o más nuevo. WebView2 ya viene con Windows 10 y 11.
+# Instala solo, avisando, todo lo que falte para compilar: Git y las Build Tools de Visual Studio con
+# C++ (con winget), Rust (rustup-init, en %USERPROFILE%\.cargo) y Node.js (el oficial, en
+# <Destino>\node, si no hay uno de 20.19 o más nuevo). WebView2 ya viene con Windows 10 y 11.
 # Actualizaciones: la app lo relanza con -Actualizar -EsperarPid <su pid> -Relanzar. Así no pregunta
 # ni instala requisitos, compila en app.nuevo, escribe LISTO y, cuando la app se cierra, cambia app\
 # por la versión nueva y la vuelve a abrir.
@@ -177,10 +177,8 @@ function Instalar-Node {
 function Asegurar-Node {
     Refrescar-Path
     if (Hay-Node) { return }
-    $aviso = "Node.js es una dependencia para compilar Anime Watcher y no se encontró (o es anterior a 20.19): se instala en $nodePropio"
     Anotar "PASO 1/$TOTAL Instalando Node.js (dependencia necesaria para compilar)"
-    [IO.File]::AppendAllText($logCompilacion, "$aviso`r`n", $utf8)
-    if ($interactivo) { Write-Host $aviso -ForegroundColor Yellow }
+    Avisar "Dependencia necesaria para compilar Anime Watcher: falta Node.js (20.19 o más nuevo); se instala en $nodePropio."
     Instalar-Node
     if (-not (Hay-Node)) { throw "Se instaló Node.js en $nodePropio, pero no funciona." }
     if ($interactivo) { Write-Host "Node.js $(& node --version) instalado." -ForegroundColor Green }
@@ -191,43 +189,51 @@ function Con-Winget([string]$id, [string[]]$extra = @()) {
     Ejecutar winget (@('install', '--id', $id, '-e', '--source', 'winget', '--accept-package-agreements', '--accept-source-agreements') + $extra) $Destino -SinComprobar
 }
 
+# Rust con rustup-init.exe, el instalador oficial (en %USERPROFILE%\.cargo, sin administrador).
 function Instalar-Rust {
-    if (-not (Tiene rustup)) { Con-Winget 'Rustlang.Rustup'; Refrescar-Path }
+    if (-not (Tiene rustup)) {
+        $arq = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+        $init = Join-Path ([IO.Path]::GetTempPath()) 'rustup-init.exe'
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -UseBasicParsing "https://static.rust-lang.org/rustup/dist/$arq-pc-windows-msvc/rustup-init.exe" -OutFile $init
+        try { Ejecutar $init @('-y', '--profile', 'minimal', '--default-toolchain', 'none') $Destino }
+        finally { Remove-Item $init -Force -ErrorAction SilentlyContinue }
+        Refrescar-Path
+    }
     Ejecutar rustup @('toolchain', 'install', $toolchain, '--profile', 'minimal') $Destino
     Ejecutar rustup @('default', $toolchain) $Destino -SinComprobar
 }
 
 # En orden: rustup avisa si no hay Build Tools, y el toolchain MSVC las necesita para enlazar.
 $requisitos = @(
-    @{ Nombre = 'Git'; Hay = { Tiene git }; Instalar = { Con-Winget 'Git.Git' } },
-    @{ Nombre = 'Build Tools de Visual Studio con C++'; Hay = { Hay-BuildTools }
+    @{ Nombre = 'Git'; Winget = $true; Hay = { Tiene git }; Instalar = { Con-Winget 'Git.Git' @('--silent') } },
+    @{ Nombre = 'Build Tools de Visual Studio con C++'; Winget = $true; Hay = { Hay-BuildTools }
        Instalar = { Con-Winget 'Microsoft.VisualStudio.2022.BuildTools' @('--override', '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended') } },
     @{ Nombre = "Rust ($toolchain)"; Hay = { Hay-Rust }; Instalar = { Instalar-Rust } }
 )
 
+function Avisar([string]$texto) {
+    [IO.File]::AppendAllText($logCompilacion, "$texto`r`n", $utf8)
+    if ($interactivo) { Write-Host $texto -ForegroundColor Yellow }
+}
+
+# Todo lo que falte se instala solo, avisando de qué es y para qué hace falta. Las Build Tools
+# piden permiso de administrador con la ventana de Windows (UAC).
 function Comprobar-Requisitos {
     Refrescar-Path
-    $faltan = @($requisitos | Where-Object { -not (& $_.Hay) })
-    if (-not $faltan) { return }
-    $nombres = ($faltan | ForEach-Object { $_.Nombre }) -join ', '
-    if (-not $interactivo) { throw "Falta $nombres. Ejecuta instalar.ps1 en una consola para instalarlo." }
-    if (-not (Tiene winget)) { throw "Falta $nombres y no hay winget para instalarlo: instálalo a mano y vuelve a ejecutar el instalador." }
-    Write-Host "Falta: $nombres" -ForegroundColor Yellow
-    $respuesta = Read-Host '¿Instalarlo con winget? [T]odo / [u]no a uno / [n]ada'
-    foreach ($requisito in $faltan) {
+    foreach ($requisito in $requisitos) {
         if (& $requisito.Hay) { continue }
-        $si = switch -regex ($respuesta.Trim().ToLower()) {
-            '^(t|todo|s|si|sí)?$' { $true }
-            '^u' { (Read-Host "¿Instalar $($requisito.Nombre)? [S/n]") -notmatch '^\s*n' }
-            default { $false }
+        if ($requisito.Winget -and -not (Tiene winget)) {
+            throw "Falta $($requisito.Nombre) y no hay winget para instalarlo: instala «Instalador de aplicación» desde Microsoft Store o $($requisito.Nombre) a mano."
         }
-        if (-not $si) { throw "Sin $($requisito.Nombre) no se puede compilar Anime Watcher." }
-        Write-Host "Instalando $($requisito.Nombre)…"
+        Anotar "PASO 1/$TOTAL Instalando $($requisito.Nombre) (dependencia necesaria para compilar)"
+        Avisar "Dependencia necesaria para compilar Anime Watcher: falta $($requisito.Nombre); se instala ahora."
         & $requisito.Instalar
         Refrescar-Path
         if (-not (& $requisito.Hay)) {
             throw "Se instaló $($requisito.Nombre), pero no aparece: abre una consola nueva y vuelve a ejecutar el instalador."
         }
+        if ($interactivo) { Write-Host "Listo: $($requisito.Nombre)." -ForegroundColor Green }
     }
 }
 
@@ -338,6 +344,7 @@ function Principal {
         fecha = (& git -C $codigo log -1 --format=%cI).Trim()
         rama = $Rama
         repo = (& git -C $codigo remote get-url origin).Trim()
+        destino = $Destino
     }
 
     Paso 3 'Instalando las dependencias de JavaScript'
