@@ -1,6 +1,6 @@
-# anicli-es
+# Anime Watcher
 
-Aplicación de escritorio para Windows para ver animé subtitulado al español. Es una versión actualizada de [nolbap/anicli-es](https://github.com/nolbap/anicli-es) con interfaz gráfica hecha con [Tauri 2](https://tauri.app) y Rust. Al igual que el original, saca los animés de [MonosChinos](https://monoschinos.st), que antes estaba en monoschinos2.com.
+Anime Watcher es una aplicación de escritorio para Windows para ver animé subtitulado al español. Es una versión actualizada de [nolbap/anicli-es](https://github.com/nolbap/anicli-es) con interfaz gráfica hecha con [Tauri 2](https://tauri.app) y Rust. Al igual que el original, saca los animés de [MonosChinos](https://monoschinos.st), que antes estaba en monoschinos2.com.
 
 ## Funciones
 
