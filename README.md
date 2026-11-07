@@ -90,7 +90,7 @@ Si existe la clave de firma (`~/.tauri/anime-watcher.key`, o la variable `TAURI_
 
 ## Publicar una versión
 
-El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila para Windows x64, macOS (Apple Silicon e Intel) y Linux x64, y publica la release con los instaladores y el `latest.json` del actualizador.
+El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila para Windows x64, macOS (Apple Silicon e Intel) y Linux x64, y publica la release con los instaladores y el `latest.json` del actualizador. Primero crea la release como borrador, compila los cuatro sistemas en paralelo y, al final, genera un único `latest.json` con todas las plataformas ([`scripts/updater-json.py`](scripts/updater-json.py)) y publica la release. Así el actualizador funciona con cualquier instalación: NSIS o MSI en Windows, `.app` en macOS y AppImage, `.deb` o `.rpm` en Linux.
 
 Antes de la primera publicación, guarda la clave privada como secreto del repositorio (Settings → Secrets and variables → Actions):
 

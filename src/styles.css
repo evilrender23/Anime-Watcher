@@ -1961,6 +1961,10 @@ kbd {
   font-size: var(--fs-caption);
 }
 
+.set-status-error {
+  color: color-mix(in srgb, var(--red) 80%, var(--base));
+}
+
 .set-status:empty {
   display: none;
 }

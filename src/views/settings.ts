@@ -5,7 +5,7 @@ import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
 import { setCrumbs } from "../shell";
 import { errMsg, h, icon, loadInto, skeleton, toast } from "../ui";
-import { checkForUpdates } from "../updater";
+import { checkForUpdates, onUpdateProgress, UpdateError } from "../updater";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
@@ -195,22 +195,34 @@ function updatesGroup(signal: AbortSignal): HTMLElement {
       class: "btn btn-sm",
       onclick: async () => {
         checkBtn.disabled = true;
+        status.className = "set-status";
         status.textContent = "Buscando actualizaciones…";
         status.title = "";
+        const stop = onUpdateProgress((fraction) => {
+          if (signal.aborted) return;
+          status.textContent =
+            fraction === null ? "Descargando la actualización…" : `Descargando la actualización… ${Math.round(fraction * 100)} %`;
+        });
         try {
           const result = await checkForUpdates();
           if (signal.aborted) return;
           status.textContent =
             result.kind === "ready"
-              ? `La versión ${result.version} ya está descargada. Reinicia la app para instalarla.`
-              : "Tienes la última versión.";
+              ? `La versión ${result.version} ya está descargada. Pulsa «Reiniciar y actualizar» en la barra lateral.`
+              : result.kind === "available"
+                ? `Hay una versión nueva (${result.version}). En modo desarrollo no se descarga.`
+                : result.kind === "unpublished"
+                  ? "Todavía no hay ninguna versión publicada en GitHub."
+                  : "Tienes la última versión.";
         } catch (e) {
-          // El plugin responde en inglés; el detalle queda en la consola y en el título.
+          // El detalle técnico (en inglés) queda en la consola y en el título del mensaje.
           console.warn("checkForUpdates", e);
           if (signal.aborted) return;
-          status.textContent = "No se pudo comprobar si hay actualizaciones. Revisa tu conexión e inténtalo más tarde.";
-          status.title = errMsg(e);
+          status.className = "set-status set-status-error";
+          status.textContent = e instanceof UpdateError ? e.message : "No se pudo comprobar si hay actualizaciones.";
+          status.title = e instanceof UpdateError ? e.detail : errMsg(e);
         } finally {
+          stop();
           checkBtn.disabled = false;
         }
       },
