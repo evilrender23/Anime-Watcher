@@ -4,8 +4,9 @@ import * as api from "./api";
 import type { HistoryEntry } from "./api";
 import { cachedAnime, sameUrl } from "./data";
 import { router } from "./router";
-import { loadList } from "./mylist";
+import { listMenuItems, loadList } from "./mylist";
 import { detailRoute, homeRoute, listRoute, playerRoute, searchRoute, settingsRoute } from "./routes";
+import { copyText, installContextMenu, setGlobalMenu, withMenu } from "./contextmenu";
 import { mountCrumbs } from "./shell";
 import { errMsg, h, icon, poster, toast, type IconName } from "./ui";
 import { mountUpdater } from "./updater";
@@ -113,7 +114,7 @@ function libraryRow(entry: HistoryEntry): HTMLElement {
     icon("x"),
   );
   const active = currentAnimeUrl !== null && sameUrl(entry.animeUrl, currentAnimeUrl);
-  return h(
+  const row = h(
     "div",
     {
       class: active ? "lib-row active" : "lib-row",
@@ -131,6 +132,19 @@ function libraryRow(entry: HistoryEntry): HTMLElement {
     h("span", { class: "lib-ep", title: `Episodio ${entry.lastEpisode}` }, `EP ${entry.lastEpisode}`),
     remove,
   );
+  return withMenu(row, () => [
+    {
+      label: `Continuar episodio ${entry.lastEpisode}`,
+      icon: "play",
+      run: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
+    },
+    { label: "Ver ficha y episodios", icon: "list", run: () => router.navigate(detailRoute(entry.animeUrl)) },
+    "-",
+    ...listMenuItems({ animeUrl: entry.animeUrl, title: entry.title, cover: entry.cover, total: null }),
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(entry.title) },
+    { label: "Quitar de Continuar viendo", icon: "x", danger: true, run: () => api.historyRemove(entry.animeUrl) },
+  ]);
 }
 
 function renderLibrary(): void {
@@ -192,6 +206,29 @@ const pane = h("section", { class: "pane" }, h("header", { class: "pane-bar" }, 
 
 const app = document.getElementById("app") ?? document.body;
 app.classList.add("shell");
+installContextMenu();
+// Siempre al final del menú contextual: navegación de la app.
+setGlobalMenu(() => [
+  { label: "Atrás", icon: "back", hint: "Alt+←", disabled: !router.canGoBack, run: () => router.back() },
+  { label: "Inicio", icon: "home", run: () => router.navigate(homeRoute()) },
+  { label: "Mi lista", icon: "bookmark", run: () => router.navigate(listRoute()) },
+  {
+    label: "Buscar animé…",
+    icon: "search",
+    hint: isMac ? "⌘K" : "Ctrl+K",
+    run: () => {
+      searchInput.focus();
+      searchInput.select();
+    },
+  },
+]);
+// "Buscar «texto»" desde el menú contextual sobre una selección.
+window.addEventListener("aw:search", (e) => {
+  const query = String((e as CustomEvent<string>).detail ?? "").trim().slice(0, 100);
+  if (!query) return;
+  searchInput.value = query;
+  router.navigate(searchRoute(query));
+});
 app.append(sidebar, pane);
 mountUpdater(updateCard);
 void loadLibrary();

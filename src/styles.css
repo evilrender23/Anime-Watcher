@@ -2498,6 +2498,128 @@ kbd {
 }
 
 /* ==========================================================================
+   Menú contextual (popover estilo Hermes)
+   ========================================================================== */
+
+.ctx {
+  position: fixed;
+  z-index: 200;
+  min-width: 212px;
+  max-width: 320px;
+  max-height: calc(100vh - 12px);
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: inset 0 0 0 1px var(--stroke-2), 0 0 0 1px #0000004d, var(--shadow-nous);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  outline: none;
+  user-select: none;
+  animation: ctx-in 0.11s var(--ease-out);
+}
+
+.ctx.leaving {
+  animation: ctx-out 0.09s var(--ease) forwards;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes ctx-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.ctx-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-md);
+  color: var(--text-1);
+  font-size: 12.5px;
+  text-align: left;
+  outline: none;
+}
+
+.ctx-item:focus-visible,
+.ctx-item:focus,
+.ctx-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.ctx-item:disabled {
+  color: var(--text-4);
+  cursor: default;
+}
+
+.ctx-item.danger {
+  color: color-mix(in srgb, var(--red) 85%, var(--base));
+}
+
+.ctx-item.danger:focus,
+.ctx-item.danger:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.ctx-icon {
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.ctx-icon .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.ctx-icon .icon-fill {
+  width: 11px;
+  height: 11px;
+}
+
+.ctx-item.checked .ctx-icon {
+  color: var(--accent-text);
+}
+
+.ctx-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ctx-hint {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--stroke-3);
+}
+
+.ctx-title {
+  padding: 6px 8px 3px 32px;
+  color: var(--text-4);
+  font-size: var(--fs-tool);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
    Estados: carga, error, vacío, esqueletos
    ========================================================================== */
 

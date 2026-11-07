@@ -4,7 +4,9 @@ import { getAnime, sameUrl } from "../data";
 import { router, type ViewContext } from "../router";
 import { homeRoute, playerRoute } from "../routes";
 import { setCrumbs } from "../shell";
-import { listPanel } from "../mylist";
+import { copyText, withMenu } from "../contextmenu";
+import { listMenuItems, listPanel, peekList, saveEntry } from "../mylist";
+import { sameUrl as same } from "../data";
 import { empty, fact, h, icon, loadInto, poster, skeleton, toast } from "../ui";
 
 /** Orden de la lista de episodios; se conserva entre fichas durante la sesión. */
@@ -123,6 +125,55 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
 
   if (backdrop) page.append(backdrop);
   page.append(h("div", { class: "detail-layout" }, aside, main));
+
+  const base = { animeUrl: detail.url, title: detail.title, cover: detail.cover, total: live ? null : episodes.length || null };
+  const first = episodes[0];
+  withMenu(page, () => [
+    entry
+      ? {
+          label: `Continuar episodio ${entry.lastEpisode}`,
+          icon: "play" as const,
+          run: () => router.navigate(playerRoute(entry.lastEpisodeUrl, detail)),
+        }
+      : { label: first ? `Ver episodio ${first.number}` : "Sin episodios", icon: "play" as const, disabled: !first, run: () => first && play(first) },
+    "-",
+    ...listMenuItems(base),
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(detail.title) },
+    { label: "Copiar enlace", icon: "link", run: () => copyText(detail.url) },
+  ]);
+  // Cada episodio: verlo o marcar el progreso de la lista hasta él. Delegado en la rejilla,
+  // que se vuelve a dibujar al cambiar el orden.
+  const grid = page.querySelector(".ep-grid");
+  if (grid) {
+    withMenu(grid, (target) => {
+      const num = (target.closest(".ep") as HTMLElement | null)?.dataset.num;
+      const ep = num === undefined ? undefined : episodes.find((e) => String(e.number) === num);
+      if (!ep) return [];
+      const listed = peekList()?.find((e) => same(e.animeUrl, detail.url)) ?? null;
+      const upTo = Math.floor(ep.number);
+      return [
+        { label: `Ver episodio ${ep.number}`, icon: "play", run: () => play(ep) },
+        {
+          label: !listed || listed.progress < upTo
+            ? `Marcar visto hasta el ${ep.number}`
+            : listed.progress === upTo
+              ? `Visto hasta aquí en mi lista`
+              : `Bajar el progreso al ${upTo}`,
+          icon: "check",
+          disabled: !!listed && listed.progress === upTo,
+          run: async () => {
+            await (listed
+              ? saveEntry(listed, { progress: upTo })
+              : saveEntry({ ...base, status: "watching", score: null, progress: upTo, notes: "" }, {}));
+            toast(`Progreso de «${detail.title}»: ${upTo} episodios.`, "ok");
+          },
+        },
+        "-",
+        { label: "Copiar enlace del episodio", icon: "link", run: () => copyText(ep.url) },
+      ];
+    });
+  }
 }
 
 function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (ep: Episode) => void): HTMLElement {
@@ -189,7 +240,7 @@ function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (
         const label = `Episodio ${ep.number}${isLast ? " · último visto" : isWatched ? " · visto" : ""}`;
         return h(
           "button",
-          { class: cls, title: label, attrs: { "aria-label": label }, onclick: () => play(ep) },
+          { class: cls, title: label, dataset: { num: String(ep.number) }, attrs: { "aria-label": label }, onclick: () => play(ep) },
           h("span", { class: "ep-num" }, String(ep.number).padStart(2, "0")),
           isLast ? icon("play", "icon ep-mark") : isWatched ? icon("check", "icon ep-mark") : null,
         );

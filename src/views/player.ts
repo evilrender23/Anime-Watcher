@@ -6,6 +6,8 @@ import type { AnimeDetail, Episode, EpisodeInfo, ExternalPlayer, ResolvedStream,
 import { cachedAnime, getAnime, sameUrl } from "../data";
 import { router, type Cleanup, type ViewContext } from "../router";
 import { detailRoute, homeRoute, playerRoute, settingsRoute } from "../routes";
+import { copyText, withMenu, type MenuItem } from "../contextmenu";
+import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
 import { errMsg, h, icon, kbd, loadInto, poster, type IconName } from "../ui";
 
@@ -170,6 +172,7 @@ function mountPlayer(
           {
             class: isCurrent ? "rail-row current" : "rail-row",
             role: "listitem",
+            dataset: { num: String(ep.number) },
             title: `Episodio ${ep.number}`,
             onclick: () => !isCurrent && goTo(ep),
           },
@@ -637,6 +640,68 @@ function mountPlayer(
     const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
     video.currentTime = Math.min(Math.max(0, video.currentTime + delta), duration);
   }
+
+  // ---- Menú contextual ----
+  function episodeItems(): MenuItem[] {
+    const { prev, next } = neighbours();
+    const items: MenuItem[] = [
+      { label: next ? `Siguiente: episodio ${next.number}` : "Siguiente episodio", icon: "next", hint: "N", disabled: !next, run: () => {
+        if (next) goTo(next);
+      } },
+      { label: prev ? `Anterior: episodio ${prev.number}` : "Episodio anterior", icon: "back", hint: "P", disabled: !prev, run: () => {
+        if (prev) goTo(prev);
+      } },
+      { label: "Ver de nuevo", icon: "replay", disabled: !ready, run: replay },
+      { label: "Ficha y episodios", icon: "list", disabled: !info.animeUrl, run: openEpisodes },
+      "-",
+      { label: "Abrir en el navegador", icon: "external", run: openInBrowser },
+    ];
+    if (mode === "builtin" && ready && stream) {
+      items.push(
+        { label: "Abrir en mpv", icon: "tv", run: () => openExternal("mpv") },
+        { label: "Abrir en VLC", icon: "tv", run: () => openExternal("vlc") },
+      );
+    }
+    if (info.animeUrl) {
+      const total = detail && !/emisi/i.test(detail.status ?? "") ? detail.episodes.length || null : null;
+      items.push("-", ...listMenuItems({ animeUrl: info.animeUrl, title: animeTitle, cover: detail?.cover ?? null, total }));
+    }
+    items.push("-", { label: "Copiar enlace del episodio", icon: "link", run: () => copyText(url) });
+    return items;
+  }
+
+  // Sobre el video: controles de reproducción primero.
+  withMenu(stage, () => {
+    const v = video;
+    const media: MenuItem[] = v
+      ? [
+          v.paused
+            ? { label: "Reproducir", icon: "play", hint: "Espacio", run: () => void v.play().catch(() => {}) }
+            : { label: "Pausar", icon: "pause", hint: "Espacio", run: () => v.pause() },
+          { label: `Retroceder ${SEEK_SECONDS} s`, icon: "rewind", hint: "←", run: () => seek(-SEEK_SECONDS) },
+          { label: `Avanzar ${SEEK_SECONDS} s`, icon: "forward", hint: "→", run: () => seek(SEEK_SECONDS) },
+          { label: v.muted ? "Activar sonido" : "Silenciar", run: () => void (v.muted = !v.muted) },
+        ]
+      : [];
+    const full: MenuItem = {
+      label: document.fullscreenElement ? "Salir de pantalla completa" : "Pantalla completa",
+      icon: "fullscreen",
+      hint: "F",
+      run: toggleFullscreen,
+    };
+    return [...media, full, "-", ...episodeItems()];
+  });
+  withMenu(page, () => episodeItems());
+  // Carril de episodios: ver el episodio pulsado.
+  withMenu(railList, (target) => {
+    const n = (target.closest(".rail-row") as HTMLElement | null)?.dataset.num;
+    const ep = detail?.episodes.find((e) => String(e.number) === n);
+    if (!ep) return [];
+    return [
+      { label: `Ver episodio ${ep.number}`, icon: "play", run: () => goTo(ep) },
+      { label: "Copiar enlace del episodio", icon: "link", run: () => copyText(ep.url) },
+    ];
+  });
 
   // ---- Eventos globales ----
   const onFullscreenChange = () => {

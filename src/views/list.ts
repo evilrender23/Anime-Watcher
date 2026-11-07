@@ -2,9 +2,10 @@
 // estadísticas, filtro, orden y edición en línea de estado, nota y progreso.
 import type { ListEntry, ListStatus } from "../api";
 import * as api from "../api";
-import { loadList, progressStepper, removeEntry, scoreSelect, STATUSES, statusDot, statusSelect } from "../mylist";
+import { listMenuItems, loadList, progressStepper, removeEntry, scoreSelect, STATUSES, statusDot, statusSelect } from "../mylist";
 import { router, type ViewContext } from "../router";
 import { detailRoute } from "../routes";
+import { copyText, withMenu } from "../contextmenu";
 import { setCrumbs } from "../shell";
 import { empty, errMsg, fact, h, icon, poster, skeleton, toast } from "../ui";
 
@@ -212,7 +213,8 @@ function row(entry: ListEntry, index: number): HTMLElement {
     },
     icon("trash"),
   );
-  return h(
+  const base = { animeUrl: entry.animeUrl, title: entry.title, cover: entry.cover, total: entry.total };
+  const rowEl = h(
     "div",
     { class: `lrow st-row-${entry.status}`, role: "row", style: `--i:${Math.min(index, 20)}` },
     h("span", { class: "lrow-num", role: "cell" }, String(index + 1)),
@@ -232,4 +234,11 @@ function row(entry: ListEntry, index: number): HTMLElement {
     h("span", { role: "cell" }, statusSelect(entry, onSaved)),
     h("span", { role: "cell", class: "lrow-actions" }, remove),
   );
+  return withMenu(rowEl, () => [
+    { label: "Ver ficha y episodios", icon: "list", run: open },
+    "-",
+    ...listMenuItems(base),
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(entry.title) },
+  ]);
 }

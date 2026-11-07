@@ -2,6 +2,8 @@ import * as api from "../api";
 import type { AnimeCard } from "../api";
 import { router, type ViewContext } from "../router";
 import { detailRoute, homeRoute } from "../routes";
+import { copyText, withMenu } from "../contextmenu";
+import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
 import { empty, h, loadInto, poster, skeleton } from "../ui";
 
@@ -58,7 +60,7 @@ export function searchView(root: HTMLElement, ctx: ViewContext, query: string): 
 
 function animeCard(anime: AnimeCard, index: number): HTMLElement {
   const meta = [anime.kind, anime.year].filter((part): part is string => !!part && !!part.trim());
-  return h(
+  const tile = h(
     "button",
     {
       class: "tile",
@@ -75,4 +77,12 @@ function animeCard(anime: AnimeCard, index: number): HTMLElement {
       anime.genre ? h("span", { class: "tile-sub" }, anime.genre) : null,
     ),
   );
+  return withMenu(tile, () => [
+    { label: "Ver ficha y episodios", icon: "list", run: () => router.navigate(detailRoute(anime.url)) },
+    "-",
+    ...listMenuItems({ animeUrl: anime.url, title: anime.title, cover: anime.cover, total: null }),
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(anime.title) },
+    { label: "Copiar enlace", icon: "link", run: () => copyText(anime.url) },
+  ]);
 }

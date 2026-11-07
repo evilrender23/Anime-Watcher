@@ -2,7 +2,9 @@ import * as api from "../api";
 import type { EpisodeCard, HistoryEntry } from "../api";
 import { cachedAnime } from "../data";
 import { router, type ViewContext } from "../router";
-import { detailRoute, playerRoute } from "../routes";
+import { detailRoute, playerRoute, searchRoute } from "../routes";
+import { copyText, withMenu } from "../contextmenu";
+import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
 import { empty, fact, h, icon, kbd, loadInto, poster, skeleton } from "../ui";
 
@@ -88,7 +90,7 @@ function welcome(): HTMLElement {
 function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
   const watched = entry.watched.length;
   const when = relativeTime(entry.updatedAt);
-  return h(
+  const panel = h(
     "section",
     { class: "resume", attrs: { "aria-label": "Seguir viendo" } },
     h(
@@ -124,6 +126,18 @@ function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
       ),
     ),
   );
+  return withMenu(panel, () => [
+    {
+      label: `Continuar episodio ${entry.lastEpisode}`,
+      icon: "play",
+      run: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
+    },
+    { label: "Ver ficha y episodios", icon: "list", run: () => router.navigate(detailRoute(entry.animeUrl)) },
+    "-",
+    ...listMenuItems({ animeUrl: entry.animeUrl, title: entry.title, cover: entry.cover, total: null }),
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(entry.title) },
+  ]);
 }
 
 function relativeTime(ms: number): string {
@@ -140,7 +154,7 @@ function relativeTime(ms: number): string {
 }
 
 function latestCard(ep: EpisodeCard, index: number): HTMLElement {
-  return h(
+  const tile = h(
     "button",
     {
       class: "tile",
@@ -156,4 +170,11 @@ function latestCard(ep: EpisodeCard, index: number): HTMLElement {
       h("span", { class: "tile-meta" }, `EP ${String(ep.number).padStart(2, "0")}`),
     ),
   );
+  return withMenu(tile, () => [
+    { label: `Ver episodio ${ep.number}`, icon: "play", run: () => router.navigate(playerRoute(ep.url)) },
+    { label: "Buscar este animé", icon: "search", run: () => router.navigate(searchRoute(ep.title)) },
+    "-",
+    { label: "Copiar título", icon: "copy", run: () => copyText(ep.title) },
+    { label: "Copiar enlace del episodio", icon: "link", run: () => copyText(ep.url) },
+  ]);
 }

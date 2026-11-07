@@ -3,6 +3,7 @@
 import * as api from "./api";
 import type { ListEntry, ListStatus, ListUpdate } from "./api";
 import { sameUrl } from "./data";
+import type { MenuItem } from "./contextmenu";
 import { errMsg, h, icon, toast } from "./ui";
 
 export const STATUSES: { id: ListStatus; label: string; short: string }[] = [
@@ -38,6 +39,11 @@ window.addEventListener(api.LIST_EVENT, () => {
   cache = null;
   pending = null;
 });
+
+/** La lista si ya está en caché (para menús, que se construyen sin esperar). */
+export function peekList(): ListEntry[] | null {
+  return cache;
+}
 
 /** Lista completa (en caché hasta el siguiente cambio). */
 export function loadList(): Promise<ListEntry[]> {
@@ -239,10 +245,58 @@ export function listPanel(base: Omit<ListUpdate, "status" | "score" | "progress"
     );
   };
 
+  const refresh = () =>
+    loadList().then(
+      (list) => render(list.find((e) => sameUrl(e.animeUrl, base.animeUrl)) ?? null),
+      (e: unknown) => box.replaceChildren(h("p", { class: "side-empty side-error" }, errMsg(e))),
+    );
   box.append(h("div", { class: "skel skel-line skel-w80" }));
-  loadList().then(
-    (list) => render(list.find((e) => sameUrl(e.animeUrl, base.animeUrl)) ?? null),
-    (e: unknown) => box.replaceChildren(h("p", { class: "side-empty side-error" }, errMsg(e))),
-  );
+  void refresh();
+  // Cambios hechos desde otro sitio (menú contextual, reproductor…). Se deja de escuchar al
+  // salir de la ficha.
+  const onChange = () => {
+    if (!box.isConnected) {
+      window.removeEventListener(api.LIST_EVENT, onChange);
+      return;
+    }
+    void refresh();
+  };
+  window.addEventListener(api.LIST_EVENT, onChange);
   return box;
+}
+
+/**
+ * Opciones de "Mi lista" para el menú contextual de un animé: añadirlo, cambiar su estado
+ * (marcando el actual), sumar un episodio o quitarlo.
+ */
+export function listMenuItems(base: Omit<ListUpdate, "status" | "score" | "progress" | "notes">): MenuItem[] {
+  const list = peekList();
+  if (!list) {
+    void loadList();
+    return [];
+  }
+  const entry = list.find((e) => sameUrl(e.animeUrl, base.animeUrl)) ?? null;
+  const setStatus = async (status: ListStatus) => {
+    const saved = entry ? await saveEntry(entry, { status }) : await saveEntry({ ...base, status, score: null, progress: 0, notes: "" }, {});
+    toast(entry ? `«${saved.title}»: ${statusLabel(status)}.` : `Añadido a tu lista como «${statusLabel(status)}».`, "ok");
+  };
+  const items: MenuItem[] = [{ title: entry ? "En mi lista" : "Añadir a mi lista" }];
+  for (const s of STATUSES) {
+    items.push({ label: s.label, checked: entry ? entry.status === s.id : undefined, run: () => setStatus(s.id) });
+  }
+  if (entry) {
+    items.push(
+      "-",
+      {
+        label: `Episodio visto (${entry.progress + 1}${entry.total ? ` / ${entry.total}` : ""})`,
+        icon: "plus",
+        disabled: entry.total !== null && entry.progress >= entry.total,
+        run: async () => {
+          await saveEntry(entry, { progress: entry.progress + 1 });
+        },
+      },
+      { label: "Quitar de mi lista", icon: "trash", danger: true, run: () => removeEntry(entry) },
+    );
+  }
+  return items;
 }
