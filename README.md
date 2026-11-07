@@ -67,7 +67,7 @@ En **Ajustes → Actualizaciones** ves el commit instalado, puedes buscar a mano
 
 Publicar una versión es solo hacer push a `main`. Volver a ejecutar el comando de instalación también actualiza.
 
-Para publicar un release con instaladores: sube la versión en `package.json`, `src-tauri/Cargo.toml` y `src-tauri/tauri.conf.json`, haz commit y sube una etiqueta igual (`git tag v1.0.3 && git push origin v1.0.3`). El workflow `.github/workflows/release.yml` compila Windows y macOS (Apple Silicon e Intel) y publica el release.
+Para publicar un release con instaladores: sube la versión en `package.json`, `src-tauri/Cargo.toml` y `src-tauri/tauri.conf.json`, haz commit y sube una etiqueta igual (`v1.0.3` o `1.0.3`; en GitHub Desktop: History → clic derecho en el commit → Create Tag → Push origin), o lánzalo desde **Actions → Publicar release → Run workflow**. El workflow `.github/workflows/release.yml` compila Windows y macOS (Apple Silicon e Intel) y publica el release.
 
 ## Compilar instaladores
 
