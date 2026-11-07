@@ -1,8 +1,10 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
 import { errMsg, h, icon, loadInto, skeleton, toast, type IconName } from "../ui";
+import { checkForUpdates } from "../updater";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
@@ -167,6 +169,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
       ),
     ),
     h("div", { class: "settings-actions" }, saveBtn),
+    updatesPanel(signal),
     h(
       "section",
       { class: "panel panel-help" },
@@ -178,5 +181,56 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
       link("mpv", MPV_URL),
       link("VLC", VLC_URL),
     ),
+  );
+}
+
+function updatesPanel(signal: AbortSignal): HTMLElement {
+  const version = h("strong", null, "…");
+  getVersion().then(
+    (v) => {
+      version.textContent = v;
+    },
+    (e: unknown) => console.warn("getVersion", e),
+  );
+  const status = h("p", { class: "update-status", attrs: { "aria-live": "polite" } });
+  const checkBtn: HTMLButtonElement = h(
+    "button",
+    {
+      class: "btn btn-sm",
+      onclick: async () => {
+        checkBtn.disabled = true;
+        status.textContent = "Buscando actualizaciones…";
+        status.title = "";
+        try {
+          const result = await checkForUpdates();
+          if (signal.aborted) return;
+          status.textContent =
+            result.kind === "ready"
+              ? `La versión ${result.version} ya está descargada. Reinicia la app para instalarla.`
+              : "Tienes la última versión.";
+        } catch (e) {
+          // El plugin responde en inglés; el detalle queda en la consola y en el título.
+          console.warn("checkForUpdates", e);
+          if (signal.aborted) return;
+          status.textContent = "No se pudo comprobar si hay actualizaciones. Revisa tu conexión e inténtalo más tarde.";
+          status.title = errMsg(e);
+        } finally {
+          checkBtn.disabled = false;
+        }
+      },
+    },
+    icon("replay"),
+    "Buscar actualizaciones",
+  );
+  return h(
+    "section",
+    { class: "panel" },
+    panelHead(
+      "download",
+      "Actualizaciones",
+      "La app busca versiones nuevas en GitHub cada vez que se abre y las descarga sola; sólo tienes que reiniciarla para instalarlas.",
+    ),
+    h("div", { class: "update-row" }, h("span", { class: "update-version" }, "Versión instalada ", version), checkBtn),
+    status,
   );
 }

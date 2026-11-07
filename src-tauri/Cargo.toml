@@ -1,10 +1,10 @@
 [package]
-name = "anicli-es"
+name = "anime-watcher"
 version = "1.0.0"
-description = "Herramienta para ver animé subtitulado al español, con interfaz gráfica para Windows."
+description = "Anime Watcher: ver animé subtitulado al español, con interfaz gráfica para Windows, macOS y Linux."
 edition = "2024"
 license = "GPL-3.0-only"
-repository = "https://github.com/nolbap/anicli-es"
+repository = "https://github.com/evilrender23/Anime-Watcher"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "charset", "http2", "system-proxy", "gzip", "brotli", "deflate", "cookies", "form", "json", "query", "stream"] }

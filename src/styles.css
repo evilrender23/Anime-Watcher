@@ -2054,6 +2054,95 @@ img {
   text-overflow: ellipsis;
 }
 
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s4);
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--fill);
+}
+
+.update-version {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.update-version strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-status {
+  margin: var(--s3) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.update-status:empty {
+  display: none;
+}
+
+/* ---------- Aviso de actualización lista ---------- */
+
+.update-card {
+  position: fixed;
+  left: var(--s6);
+  bottom: var(--s6);
+  z-index: 90;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s3) var(--s4);
+  width: min(420px, calc(100vw - 48px));
+  padding: var(--s4);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(320px 140px at 0% 0%, rgba(124, 108, 255, 0.2), transparent 70%),
+    var(--surface-2);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.85);
+  animation: toast-in var(--t-med) var(--ease-out);
+}
+
+.update-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  box-shadow: var(--brand-glow);
+  --icon-size: 20px;
+}
+
+.update-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.update-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.update-desc {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.update-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
 /* ---------- Estados: carga, vacío, error, avisos ---------- */
 
 .state {

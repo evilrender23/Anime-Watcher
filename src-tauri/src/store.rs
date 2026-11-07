@@ -1,5 +1,5 @@
 //! Ajustes e historial guardados como JSON en la carpeta de datos de la aplicación
-//! (`%APPDATA%\com.anicli-es.desktop`).
+//! (`%APPDATA%\com.evilrender23.animewatcher` en Windows).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,26 @@ use crate::error::Result;
 
 /// Animés recordados en el historial.
 const MAX_HISTORY: usize = 200;
+
+/// Identificador de las versiones que se llamaban "anicli-es"; su carpeta de datos es hermana de la actual.
+const LEGACY_IDENTIFIER: &str = "com.anicli-es.desktop";
+
+/// Copia los ajustes y el historial de la carpeta de "anicli-es" que aún no existan en `dir`.
+/// Nunca sobrescribe datos nuevos; los fallos sólo se registran para no impedir el arranque.
+pub fn migrate_legacy(dir: &Path) {
+    let Some(legacy) = dir.parent().map(|parent| parent.join(LEGACY_IDENTIFIER)) else {
+        return;
+    };
+    for name in ["settings.json", "history.json"] {
+        let (from, to) = (legacy.join(name), dir.join(name));
+        if !from.is_file() || to.exists() {
+            continue;
+        }
+        if let Err(err) = fs::create_dir_all(dir).and_then(|()| fs::copy(&from, &to)) {
+            eprintln!("no se pudo migrar {}: {err}", from.display());
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -177,7 +197,7 @@ mod tests {
 
     #[test]
     fn mark_moves_anime_to_front_and_persists() {
-        let dir = std::env::temp_dir().join(format!("anicli-es-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("anime-watcher-test-{}", uuid::Uuid::new_v4()));
         let store = Store::open(dir.clone());
         store.mark(mark("a", 1.0)).unwrap();
         store.mark(mark("b", 3.0)).unwrap();
@@ -194,5 +214,25 @@ mod tests {
         reopened.remove("a").unwrap();
         assert_eq!(Store::open(dir.clone()).history().len(), 1);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn migrate_legacy_copies_only_missing_files() {
+        let root = std::env::temp_dir().join(format!("anime-watcher-migrate-{}", uuid::Uuid::new_v4()));
+        let legacy = root.join(LEGACY_IDENTIFIER);
+        let dir = root.join("com.evilrender23.animewatcher");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(legacy.join("history.json"), "[\"antiguo\"]").unwrap();
+        fs::write(legacy.join("settings.json"), "{\"player\":\"vlc\"}").unwrap();
+        fs::write(dir.join("settings.json"), "{\"player\":\"mpv\"}").unwrap();
+
+        migrate_legacy(&dir);
+        migrate_legacy(&dir);
+
+        assert_eq!(fs::read_to_string(dir.join("history.json")).unwrap(), "[\"antiguo\"]");
+        assert_eq!(fs::read_to_string(dir.join("settings.json")).unwrap(), "{\"player\":\"mpv\"}");
+        assert!(legacy.join("history.json").is_file(), "la carpeta antigua no se toca");
+        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,4 +1,4 @@
-//! Reproductores externos (mpv y VLC) en Windows.
+//! Reproductores externos (mpv y VLC).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -70,6 +70,19 @@ pub fn find(player: External, manual: Option<&str>) -> Option<PathBuf> {
             .collect(),
         ),
     };
+    // Las apps abiertas desde el Finder no heredan el PATH de Homebrew ni ven los .app como comandos.
+    #[cfg(target_os = "macos")]
+    let candidates: Vec<PathBuf> = candidates
+        .into_iter()
+        .chain(
+            match player {
+                External::Mpv => &["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv"][..],
+                External::Vlc => &["/Applications/VLC.app/Contents/MacOS/VLC"][..],
+            }
+            .iter()
+            .map(PathBuf::from),
+        )
+        .collect();
     commands
         .iter()
         .find_map(|c| which::which(c).ok())

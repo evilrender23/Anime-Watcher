@@ -1,0 +1,86 @@
+# Compila Anime Watcher para Windows, macOS (Apple Silicon e Intel) y Linux y publica
+# una release en GitHub con los instaladores y el latest.json que usa el actualizador
+# automático de la app.
+#
+# Se lanza al subir una etiqueta vX.Y.Z (o a mano desde la pestaña Actions). La versión
+# publicada es la de src-tauri/tauri.conf.json, así que súbela antes de etiquetar.
+#
+# Secretos (Settings → Secrets and variables → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           obligatorio: contenido de ~/.tauri/anime-watcher.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  sólo si esa clave tiene contraseña
+name: Publicar versión
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            platform: windows-latest
+            args: ""
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - name: macOS Intel
+            platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - name: Linux x64
+            platform: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: ${{ matrix.args }}
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Anime Watcher v__VERSION__
+          releaseBody: |
+            **Windows** (PowerShell): `irm https://raw.githubusercontent.com/evilrender23/Anime-Watcher/main/scripts/install.ps1 | iex`
+            **macOS / Linux**: `curl -fsSL https://raw.githubusercontent.com/evilrender23/Anime-Watcher/main/scripts/install.sh | bash`
+
+            También puedes descargar el instalador de tu sistema más abajo. Si ya tienes la app, se actualiza sola.
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}

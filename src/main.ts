@@ -2,6 +2,7 @@ import "./styles.css";
 import { router } from "./router";
 import { homeRoute, searchRoute, settingsRoute } from "./routes";
 import { h, icon } from "./ui";
+import { mountUpdater } from "./updater";
 
 const brand = h(
   "button",
@@ -58,6 +59,7 @@ const searchForm = h(
 );
 
 const view = h("main", { class: "view", id: "contenido" });
+const updateCard = h("aside", { class: "update-card", hidden: true, role: "status", attrs: { "aria-label": "Actualización" } });
 const app = document.getElementById("app") ?? document.body;
 app.classList.add("shell");
 app.append(
@@ -70,7 +72,9 @@ app.append(
   ),
   view,
   h("footer", { class: "footer" }, "Hecho con ❤️ por EvilRender23"),
+  updateCard,
 );
+mountUpdater(updateCard);
 
 router.onChange((route, canGoBack) => {
   backBtn.disabled = !canGoBack;

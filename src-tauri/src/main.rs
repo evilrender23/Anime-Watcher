@@ -17,10 +17,14 @@ use commands::AppState;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let http = http::scraper_client()?;
             let proxy = tauri::async_runtime::block_on(proxy::Proxy::start(http::stream_client()?))?;
-            let store = store::Store::open(app.path().app_data_dir()?);
+            let data_dir = app.path().app_data_dir()?;
+            store::migrate_legacy(&data_dir);
+            let store = store::Store::open(data_dir);
             app.manage(AppState { http, proxy, store });
             Ok(())
         })
@@ -39,5 +43,5 @@ fn main() {
             commands::history_remove,
         ])
         .run(tauri::generate_context!())
-        .expect("no se pudo iniciar anicli-es");
+        .expect("no se pudo iniciar Anime Watcher");
 }
