@@ -23,7 +23,8 @@
 #
 # Pregunta antes de instalar lo que falte: Mac, las herramientas de línea de comandos de Xcode;
 # Linux, un compilador de C, git, curl, pkg-config y WebKitGTK (con el gestor de paquetes y sudo);
-# los dos, Rust y Node.js.
+# los dos, Rust. Node.js (dependencia para compilar la interfaz) se instala sin preguntar, avisando,
+# en <destino>/node si el sistema no tiene uno de 20.19 o más nuevo.
 #
 # Actualizaciones: la app lo relanza con --actualizar --esperar-pid <su pid> --relanzar. Así no
 # pregunta ni instala requisitos, compila en app.nuevo, escribe LISTO y, cuando la app se cierra,
@@ -98,6 +99,9 @@ NO_RELANZAR="$REGISTRO/no-relanzar"
 # desde la app (abierta desde el Dock, el Finder o el menú) el PATH es el mínimo del sistema y no
 # trae lo que añade la configuración de la terminal (nvm, ~/.cargo/bin, ~/.local/node/bin…).
 RUTAS="$REGISTRO/rutas"
+# Node.js propio (si el sistema no tiene uno válido): sólo hace falta para compilar.
+NODE_PROPIO="$DESTINO/node"
+NODE_SERIE='latest-v22.x'
 TOTAL=7
 
 cargar_rutas() {
@@ -109,6 +113,7 @@ cargar_rutas() {
     export PATH
 }
 cargar_rutas
+[ -x "$NODE_PROPIO/bin/node" ] && export PATH="$NODE_PROPIO/bin:$PATH"
 
 anotar() { printf '%s\n' "$1" >> "$ESTADO"; }
 paso() {
@@ -204,18 +209,48 @@ instalar_rust() {
     fi
 }
 
+# Node.js LTS oficial de nodejs.org en <destino>/node, con su SHA-256 comprobado. No usa sudo, brew
+# ni nvm y no toca el sistema, así que también vale durante una actualización sin nadie delante.
 instalar_node() {
-    if ! $LINUX && tiene brew; then
-        ejecutar "$DESTINO" brew install node
-    else
-        ejecutar "$DESTINO" bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'
-        cargar_nvm || fallar 'Se instaló nvm, pero no se puede cargar: abre una terminal nueva y vuelve a ejecutar el instalador.'
-        ejecutar "$DESTINO" bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*"'
-        cargar_nvm
+    local so arq base sumas archivo tmp
+    if $LINUX; then so=linux; else so=darwin; fi
+    case "$(uname -m)" in
+        x86_64|amd64) arq=x64 ;;
+        arm64|aarch64) arq=arm64 ;;
+        *) fallar "No hay Node.js oficial para $(uname -m): instálalo a mano (20.19+ o 22.12+) y vuelve a ejecutar el instalador." ;;
+    esac
+    base="https://nodejs.org/dist/$NODE_SERIE"
+    sumas=$(curl -fsSL "$base/SHASUMS256.txt") || fallar 'No se pudo descargar la lista de Node.js de nodejs.org: revisa la conexión.'
+    archivo=$(printf '%s\n' "$sumas" | awk -v f="-$so-$arq.tar.gz" '$2 ~ f"$" { print $2; exit }')
+    [ -n "$archivo" ] || fallar "nodejs.org no tiene Node.js para $so-$arq."
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/anime-watcher-node.XXXXXX") || fallar 'No se pudo crear una carpeta temporal.'
+    ejecutar "$tmp" curl -fsSLo "$archivo" "$base/$archivo" || { rm -rf "$tmp"; fallar 'No se pudo descargar Node.js.'; }
+    if ! (cd "$tmp" && printf '%s\n' "$sumas" | grep " $archivo\$" | shasum -a 256 -c - >/dev/null 2>&1); then
+        rm -rf "$tmp"
+        fallar 'El Node.js descargado no coincide con su SHA-256; no se instala.'
     fi
+    ejecutar "$tmp" tar -xzf "$archivo" || { rm -rf "$tmp"; fallar 'No se pudo descomprimir Node.js.'; }
+    rm -rf "$NODE_PROPIO"
+    mv "$tmp/${archivo%.tar.gz}" "$NODE_PROPIO" || { rm -rf "$tmp"; fallar "No se pudo instalar Node.js en $NODE_PROPIO."; }
+    rm -rf "$tmp"
+    export PATH="$NODE_PROPIO/bin:$PATH"
 }
 
-if $LINUX; then REQUISITOS='sistema rust node'; else REQUISITOS='xcode rust node'; fi
+# Node.js sólo se usa para compilar la interfaz: si falta, se instala sin preguntar, avisando.
+asegurar_node() {
+    hay_node && return 0
+    local aviso="Node.js es una dependencia para compilar Anime Watcher y no se encontró (o es anterior a 20.19): se instala en $NODE_PROPIO"
+    anotar "PASO 1/$TOTAL Instalando Node.js (dependencia necesaria para compilar)"
+    $INTERACTIVO && printf '\033[33m%s\033[0m\n' "$aviso"
+    printf '%s\n' "$aviso" >> "$LOG"
+    instalar_node
+    hay_node || fallar "Se instaló Node.js en $NODE_PROPIO, pero no funciona (detalles en $LOG)."
+    $INTERACTIVO && printf '\033[32mNode.js %s instalado.\033[0m\n' "$(node --version)"
+    return 0
+}
+
+# Node.js va aparte (asegurar_node): se instala sin preguntar.
+if $LINUX; then REQUISITOS='sistema rust'; else REQUISITOS='xcode rust'; fi
 nombre_de() {
     case "$1" in
         xcode) echo 'Herramientas de línea de comandos de Xcode (con Git)' ;;
@@ -400,6 +435,7 @@ principal() {
     if $LINUX; then paso 1 'Comprobando el compilador de C, Git, WebKitGTK, Rust y Node.js'
     else paso 1 'Comprobando las herramientas de Xcode, Git, Rust y Node.js'; fi
     comprobar_requisitos
+    asegurar_node
     guardar_rutas
 
     paso 2 "Descargando el código ($RAMA)"

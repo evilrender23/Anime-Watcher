@@ -17,8 +17,9 @@
 #              ERROR), y compilacion.log, con la salida de git, npm y cargo.
 # Crea «Anime Watcher» en el menú Inicio.
 #
-# Pregunta antes de instalar con winget lo que falte: Git, Node.js, las Build Tools de Visual Studio
-# con C++ y Rust. WebView2 ya viene con Windows 10 y 11.
+# Pregunta antes de instalar con winget lo que falte: Git, las Build Tools de Visual Studio con C++ y
+# Rust. Node.js (dependencia para compilar la interfaz) se instala sin preguntar, avisando, en
+# <Destino>\node si el sistema no tiene uno de 20.19 o más nuevo. WebView2 ya viene con Windows 10 y 11.
 # Actualizaciones: la app lo relanza con -Actualizar -EsperarPid <su pid> -Relanzar. Así no pregunta
 # ni instala requisitos, compila en app.nuevo, escribe LISTO y, cuando la app se cierra, cambia app\
 # por la versión nueva y la vuelve a abrir.
@@ -71,6 +72,9 @@ $cerrojoRuta = Join-Path $registro 'instalar.lock'
 $script:cerrojo = $null
 $toolchain = 'stable-x86_64-pc-windows-msvc'
 $exe = 'anime-watcher.exe'
+# Node.js propio (si el sistema no tiene uno válido): sólo hace falta para compilar.
+$nodePropio = Join-Path $Destino 'node'
+$nodeSerie = 'latest-v22.x'
 $TOTAL = 7
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $script:salidaUltima = @()
@@ -121,6 +125,7 @@ function Refrescar-Path {
     }
     $cargo = Join-Path $env:USERPROFILE '.cargo\bin'
     if ((Test-Path $cargo) -and -not (($env:Path -split ';') -contains $cargo)) { $env:Path = "$cargo;$env:Path" }
+    if ((Test-Path (Join-Path $nodePropio 'node.exe')) -and -not (($env:Path -split ';') -contains $nodePropio)) { $env:Path = "$nodePropio;$env:Path" }
 }
 
 function Hay-BuildTools {
@@ -143,6 +148,44 @@ function Hay-Node {
     ($mayor -gt 22) -or ($mayor -eq 22 -and $menor -ge 12) -or ($mayor -eq 20 -and $menor -ge 19)
 }
 
+# Node.js LTS oficial de nodejs.org en <Destino>\node, con su SHA-256 comprobado. No usa winget
+# ni pide administrador, así que también vale durante una actualización sin nadie delante.
+function Instalar-Node {
+    $arq = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $base = "https://nodejs.org/dist/$nodeSerie"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $sumas = (Invoke-WebRequest -UseBasicParsing "$base/SHASUMS256.txt").Content -split "`n"
+    $linea = $sumas | Where-Object { $_ -match "\s(node-v[\d.]+-win-$arq\.zip)$" } | Select-Object -First 1
+    if (-not $linea) { throw "nodejs.org no tiene Node.js para win-$arq." }
+    $hash, $archivo = ($linea.Trim() -split '\s+', 2)
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("anime-watcher-node-" + [Guid]::NewGuid())
+    New-Item -ItemType Directory $tmp | Out-Null
+    try {
+        $zip = Join-Path $tmp $archivo
+        Invoke-WebRequest -UseBasicParsing "$base/$archivo" -OutFile $zip
+        if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $hash.ToUpper()) { throw 'El Node.js descargado no coincide con su SHA-256; no se instala.' }
+        Expand-Archive $zip -DestinationPath $tmp -Force
+        if (Test-Path $nodePropio) { Remove-Item $nodePropio -Recurse -Force }
+        Move-Item (Join-Path $tmp ([IO.Path]::GetFileNameWithoutExtension($archivo))) $nodePropio
+    } finally {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Refrescar-Path
+}
+
+# Node.js sólo se usa para compilar la interfaz: si falta, se instala sin preguntar, avisando.
+function Asegurar-Node {
+    Refrescar-Path
+    if (Hay-Node) { return }
+    $aviso = "Node.js es una dependencia para compilar Anime Watcher y no se encontró (o es anterior a 20.19): se instala en $nodePropio"
+    Anotar "PASO 1/$TOTAL Instalando Node.js (dependencia necesaria para compilar)"
+    [IO.File]::AppendAllText($logCompilacion, "$aviso`r`n", $utf8)
+    if ($interactivo) { Write-Host $aviso -ForegroundColor Yellow }
+    Instalar-Node
+    if (-not (Hay-Node)) { throw "Se instaló Node.js en $nodePropio, pero no funciona." }
+    if ($interactivo) { Write-Host "Node.js $(& node --version) instalado." -ForegroundColor Green }
+}
+
 function Con-Winget([string]$id, [string[]]$extra = @()) {
     # winget sale con códigos raros aunque instale; lo que vale es que luego se encuentre.
     Ejecutar winget (@('install', '--id', $id, '-e', '--source', 'winget', '--accept-package-agreements', '--accept-source-agreements') + $extra) $Destino -SinComprobar
@@ -157,7 +200,6 @@ function Instalar-Rust {
 # En orden: rustup avisa si no hay Build Tools, y el toolchain MSVC las necesita para enlazar.
 $requisitos = @(
     @{ Nombre = 'Git'; Hay = { Tiene git }; Instalar = { Con-Winget 'Git.Git' } },
-    @{ Nombre = 'Node.js 20.19+ o 22.12+'; Hay = { Hay-Node }; Instalar = { Con-Winget 'OpenJS.NodeJS.LTS' } },
     @{ Nombre = 'Build Tools de Visual Studio con C++'; Hay = { Hay-BuildTools }
        Instalar = { Con-Winget 'Microsoft.VisualStudio.2022.BuildTools' @('--override', '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended') } },
     @{ Nombre = "Rust ($toolchain)"; Hay = { Hay-Rust }; Instalar = { Instalar-Rust } }
@@ -284,8 +326,9 @@ function Principal {
     [IO.File]::WriteAllText($logCompilacion, '', $utf8)
     [IO.File]::WriteAllText($log, '', $utf8)
 
-    Paso 1 'Comprobando Git, Node.js, las Build Tools de C++ y Rust'
+    Paso 1 'Comprobando Git, las Build Tools de C++, Rust y Node.js'
     Comprobar-Requisitos
+    Asegurar-Node
 
     Paso 2 "Descargando el código ($Rama)"
     Descargar-Codigo
