@@ -5,7 +5,8 @@ import * as api from "../api";
 import type { AnimeDetail, Episode, EpisodeInfo, ExternalPlayer, ResolvedStream, Server, Settings } from "../api";
 import { cachedAnime, getAnime, sameUrl } from "../data";
 import { router, type Cleanup, type ViewContext } from "../router";
-import { detailRoute, playerRoute, settingsRoute } from "../routes";
+import { detailRoute, homeRoute, playerRoute, settingsRoute } from "../routes";
+import { setCrumbs } from "../shell";
 import { errMsg, h, icon, kbd, loadInto, poster, type IconName } from "../ui";
 
 const PLAYER_NAMES: Record<ExternalPlayer, string> = { mpv: "mpv", vlc: "VLC" };
@@ -17,6 +18,7 @@ type Outcome = { ok: true } | { ok: false; error: string; fatal?: boolean };
 type Mode = "idle" | "builtin" | "external" | "web";
 
 export function playerView(root: HTMLElement, ctx: ViewContext, url: string, context: AnimeDetail | null): Cleanup {
+  setCrumbs({ label: "Inicio", onClick: () => router.navigate(homeRoute()) }, "Reproductor");
   const page = h("div", { class: "page player-page" });
   root.append(page);
   let teardown: Cleanup | null = null;
@@ -55,6 +57,12 @@ function mountPlayer(
   const epLabel = info.number !== null ? `Episodio ${info.number}` : "Episodio";
   const externalTitle = info.number !== null ? `${animeTitle} - Episodio ${info.number}` : animeTitle;
   const external: ExternalPlayer | null = settings.player === "builtin" ? null : settings.player;
+  const animeUrl = info.animeUrl;
+  setCrumbs(
+    { label: "Inicio", onClick: () => router.navigate(homeRoute()) },
+    animeUrl ? { label: animeTitle, onClick: () => router.navigate(detailRoute(animeUrl)) } : animeTitle,
+    epLabel,
+  );
 
   // ---- Estado ----
   /** Generación del intento actual: cualquier await de un intento anterior queda obsoleto. */
@@ -71,25 +79,24 @@ function mountPlayer(
   const failed = new Set<Server>();
 
   // ---- DOM ----
-  const headCover = h("div", { class: "player-cover" });
+  // Columna principal: título, escenario, barra de control, servidores.
+  // Carril derecho: portada + lista de episodios (cuando se conoce la ficha).
   const head = h(
-    "div",
+    "header",
     { class: "player-head" },
-    headCover,
     h(
       "div",
       { class: "player-titles" },
+      h("p", { class: "eyebrow" }, epLabel),
       h(
         "button",
-        { class: "player-title", title: "Ver episodios", disabled: !info.animeUrl, onclick: () => openEpisodes() },
+        { class: "player-title", title: "Ver ficha", disabled: !info.animeUrl, onclick: () => openEpisodes() },
         animeTitle,
       ),
-      h("div", { class: "player-sub" }, epLabel),
     ),
     h(
       "div",
       { class: "player-hint", attrs: { "aria-label": "Atajos de teclado" } },
-      h("span", { class: "player-hint-label" }, "Atajos"),
       kbd("Espacio", "Pausar o reanudar"),
       kbd("←", `Retroceder ${SEEK_SECONDS} s`),
       kbd("→", `Avanzar ${SEEK_SECONDS} s`),
@@ -101,27 +108,82 @@ function mountPlayer(
   const mediaLayer = h("div", { class: "stage-media" });
   const overlay = h("div", { class: "stage-overlay", hidden: true });
   const stage = h("div", { class: "stage" }, mediaLayer, overlay);
-  const controls = h("div", { class: "player-controls" });
+  const controls = h("div", { class: "dock", role: "toolbar", attrs: { "aria-label": "Controles" } });
   const message = h("div", { class: "player-msg", hidden: true });
   const chips = h("div", { class: "chips" });
+  const railCover = h("div", { class: "rail-cover" });
+  const railList = h("div", { class: "rail-list", role: "list" });
+  const railCount = h("span", { class: "rule-count" });
+  const rail = h(
+    "aside",
+    { class: "rail", attrs: { "aria-label": "Episodios" } },
+    railCover,
+    h(
+      "header",
+      { class: "rule rule-tight" },
+      h("h2", { class: "rule-title" }, "Episodios"),
+      railCount,
+      h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
+    ),
+    railList,
+  );
   page.append(
-    head,
-    stage,
-    controls,
-    message,
     h(
       "div",
-      { class: "server-bar", role: "group", attrs: { "aria-label": "Servidores" } },
-      h("span", { class: "server-label" }, "Servidores"),
-      chips,
+      { class: "player-main" },
+      head,
+      stage,
+      controls,
+      message,
+      h(
+        "div",
+        { class: "servers", role: "group", attrs: { "aria-label": "Servidores" } },
+        h("span", { class: "servers-label" }, "Servidor"),
+        chips,
+      ),
     ),
+    rail,
   );
+  if (info.animeUrl) window.dispatchEvent(new CustomEvent("aw:now-playing", { detail: info.animeUrl }));
 
   const isStale = (my: number) => signal.aborted || my !== gen;
 
   // ---- Interfaz ----
   function renderHead(): void {
-    headCover.replaceChildren(poster(detail?.cover ?? null, animeTitle, "ratio-poster"));
+    railCover.replaceChildren(poster(detail?.cover ?? null, animeTitle, "ratio-poster"));
+    renderRail();
+  }
+
+  function renderRail(): void {
+    const eps = detail?.episodes ?? [];
+    railCount.textContent = eps.length ? String(eps.length) : "";
+    if (!eps.length) {
+      railList.replaceChildren(h("p", { class: "side-empty" }, detail ? "Sin episodios." : "Cargando episodios…"));
+      return;
+    }
+    let current: HTMLElement | null = null;
+    railList.replaceChildren(
+      ...eps.map((ep) => {
+        const isCurrent = sameUrl(ep.url, url) || sameUrl(ep.url, info.url) || (info.number !== null && ep.number === info.number);
+        const el = h(
+          "button",
+          {
+            class: isCurrent ? "rail-row current" : "rail-row",
+            role: "listitem",
+            title: `Episodio ${ep.number}`,
+            onclick: () => !isCurrent && goTo(ep),
+          },
+          h("span", { class: "rail-num" }, String(ep.number).padStart(2, "0")),
+          h("span", { class: "rail-label" }, `Episodio ${ep.number}`),
+          isCurrent ? icon("play", "icon rail-mark") : null,
+        );
+        if (isCurrent) current = el;
+        return el;
+      }),
+    );
+    const target = current as HTMLElement | null;
+    // Centra el episodio actual sólo dentro del carril (sin mover la vista principal).
+    if (target) requestAnimationFrame(() => (railList.scrollTop = target.offsetTop - railList.clientHeight / 2 + target.clientHeight / 2));
   }
 
   function say(text: string, kind: "info" | "error" | "ok" | "notice" = "info"): void {
@@ -184,7 +246,7 @@ function mountPlayer(
   }
 
   function button(label: string, name: IconName, onClick: () => void, disabled = false, title = label): HTMLButtonElement {
-    return h("button", { class: "btn", title, disabled, onclick: onClick }, icon(name), label);
+    return h("button", { class: "dock-btn", title, disabled, onclick: onClick }, icon(name), h("span", null, label));
   }
 
   function renderControls(): void {
@@ -193,7 +255,7 @@ function mountPlayer(
     controls.replaceChildren(
       h(
         "div",
-        { class: "controls-group", role: "group", attrs: { "aria-label": "Episodio" } },
+        { class: "dock-group", role: "group", attrs: { "aria-label": "Episodio" } },
         button("Anterior", "back", () => prev && goTo(prev), !prev, prev ? `Episodio ${prev.number} (P)` : "Anterior"),
         button("Siguiente", "next", () => next && goTo(next), !next, next ? `Episodio ${next.number} (N)` : "Siguiente"),
         h(
@@ -201,12 +263,12 @@ function mountPlayer(
           { class: "icon-btn", title: "Ver de nuevo", disabled: !ready, attrs: { "aria-label": "Ver de nuevo" }, onclick: replay },
           icon("replay"),
         ),
-        button("Episodios", "list", openEpisodes, !info.animeUrl),
       ),
+      h("span", { class: "dock-sep", attrs: { "aria-hidden": "true" } }),
       h(
         "div",
-        { class: "controls-group controls-out", role: "group", attrs: { "aria-label": "Abrir en" } },
-        h("span", { class: "controls-label", attrs: { "aria-hidden": "true" } }, "Abrir en"),
+        { class: "dock-group dock-out", role: "group", attrs: { "aria-label": "Abrir en" } },
+        h("span", { class: "dock-label", attrs: { "aria-hidden": "true" } }, "Abrir en"),
         button("Navegador", "external", openInBrowser, false, "Abrir en el navegador"),
         mode === "builtin" && ready && stream
           ? [
@@ -656,5 +718,6 @@ function mountPlayer(
       void document.exitFullscreen().catch(() => {});
       setWindowFullscreen(false);
     }
+    window.dispatchEvent(new CustomEvent("aw:now-playing", { detail: null }));
   };
 }

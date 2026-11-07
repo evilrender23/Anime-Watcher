@@ -3,23 +3,26 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
-import { errMsg, h, icon, loadInto, skeleton, toast, type IconName } from "../ui";
+import { setCrumbs } from "../shell";
+import { errMsg, h, icon, loadInto, skeleton, toast } from "../ui";
 import { checkForUpdates } from "../updater";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
 
 export function settingsView(root: HTMLElement, ctx: ViewContext): void {
-  const body = h("div");
+  setCrumbs("Ajustes");
+  const body = h("div", { class: "settings" });
   root.append(
     h(
       "div",
       { class: "page settings-page" },
       h(
-        "div",
+        "header",
         { class: "page-head" },
-        h("h1", { class: "page-title" }, "Ajustes"),
-        h("p", { class: "page-sub" }, "Elige cómo quieres ver tus episodios."),
+        h("p", { class: "eyebrow" }, "Preferencias"),
+        h("h1", { class: "display" }, "Ajustes"),
+        h("p", { class: "lede" }, "Elige cómo quieres ver tus episodios. Los cambios se aplican al pulsar Guardar."),
       ),
       body,
     ),
@@ -34,19 +37,29 @@ export function settingsView(root: HTMLElement, ctx: ViewContext): void {
   );
 }
 
-const panelHead = (name: IconName, title: string, desc?: string) =>
+/** Grupo de ajustes: título a la izquierda, filas a la derecha. */
+const group = (title: string, desc: string | null, ...rows: (HTMLElement | null)[]) =>
+  h(
+    "section",
+    { class: "set-group" },
+    h("header", { class: "set-group-head" }, h("h2", null, title), desc ? h("p", null, desc) : null),
+    h("div", { class: "set-rows" }, rows),
+  );
+
+/** Fila: etiqueta y descripción a la izquierda, control a la derecha. */
+const row = (label: string, desc: string | Node | null, control: HTMLElement | null, cls = "") =>
   h(
     "div",
-    { class: "panel-head" },
-    h("span", { class: "panel-icon" }, icon(name)),
-    h("div", { class: "panel-heading" }, h("h2", { class: "panel-title" }, title), desc ? h("p", { class: "panel-desc" }, desc) : null),
+    { class: `set-row ${cls}`.trim() },
+    h("div", { class: "set-text" }, h("span", { class: "set-label" }, label), desc ? h("span", { class: "set-desc" }, desc) : null),
+    control,
   );
 
 function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, detected: DetectedPlayers): void {
   let player: PlayerKind = settings.player;
 
-  const detectedMpv = h("span", { class: "detected" });
-  const detectedVlc = h("span", { class: "detected" });
+  const detectedMpv = h("code", { class: "detected" });
+  const detectedVlc = h("code", { class: "detected" });
   const showDetected = (d: DetectedPlayers) => {
     for (const [el, path] of [
       [detectedMpv, d.mpv],
@@ -62,7 +75,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
   const option = (value: PlayerKind, title: string, desc: string, status: HTMLElement | null) =>
     h(
       "label",
-      { class: "radio-card" },
+      { class: "choice" },
       h("input", {
         type: "radio",
         name: "player",
@@ -72,24 +85,21 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
           player = value;
         },
       }),
-      h(
-        "div",
-        { class: "radio-body" },
-        h("div", { class: "radio-title" }, title),
-        h("div", { class: "radio-desc" }, desc, status ? " " : null, status),
-      ),
+      h("span", { class: "choice-dot", attrs: { "aria-hidden": "true" } }),
+      h("span", { class: "set-text" }, h("span", { class: "set-label" }, title), h("span", { class: "set-desc" }, desc)),
+      status,
     );
 
   const pathInput = (value: string | null, placeholder: string) =>
-    h("input", { type: "text", class: "input", value: value ?? "", placeholder, spellcheck: false, autocomplete: "off" });
-  const mpvInput = pathInput(settings.mpvPath, "Detección automática — p. ej. C:\\Program Files\\mpv\\mpv.exe");
-  const vlcInput = pathInput(settings.vlcPath, "Detección automática — p. ej. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe");
+    h("input", { type: "text", class: "input input-mono", value: value ?? "", placeholder, spellcheck: false, autocomplete: "off" });
+  const mpvInput = pathInput(settings.mpvPath, "Automática");
+  const vlcInput = pathInput(settings.vlcPath, "Automática");
   const autoNext = h("input", { type: "checkbox", class: "switch", role: "switch", checked: settings.autoNext });
 
   const saveBtn: HTMLButtonElement = h(
     "button",
     {
-      class: "btn btn-primary btn-lg",
+      class: "btn btn-primary",
       onclick: async () => {
         const next: Settings = {
           player,
@@ -115,84 +125,70 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
       },
     },
     icon("save"),
-    "Guardar",
+    "Guardar cambios",
   );
 
-  const link = (label: string, url: string) =>
+  const openBtn = (url: string) =>
     h(
-      "div",
-      { class: "link-row" },
-      h("span", { class: "link-label" }, label),
-      h("code", { class: "link-url" }, url),
-      h(
-        "button",
-        { class: "btn btn-sm", onclick: () => openUrl(url).catch((e: unknown) => toast(errMsg(e), "error")) },
-        icon("external"),
-        "Abrir",
-      ),
+      "button",
+      { class: "btn btn-sm btn-quiet", onclick: () => openUrl(url).catch((e: unknown) => toast(errMsg(e), "error")) },
+      icon("external"),
+      "Descargar",
     );
 
   body.append(
-    h(
-      "section",
-      { class: "panel" },
-      panelHead("tv", "Reproductor", "Dónde se abren los episodios."),
+    group(
+      "Reproductor",
+      "Dónde se abren los episodios.",
       h(
         "div",
-        { class: "radio-group", role: "radiogroup" },
+        { class: "choices", role: "radiogroup", attrs: { "aria-label": "Reproductor" } },
         option("builtin", "Integrado", "Reproduce dentro de la app, sin instalar nada.", null),
-        option("mpv", "mpv", "Ligero y rápido. Ruta detectada:", detectedMpv),
-        option("vlc", "VLC", "Reproductor clásico. Ruta detectada:", detectedVlc),
+        option("mpv", "mpv", "Ligero y rápido.", detectedMpv),
+        option("vlc", "VLC", "Reproductor clásico.", detectedVlc),
       ),
     ),
-    h(
-      "section",
-      { class: "panel" },
-      panelHead("folder", "Rutas manuales", "Déjalas vacías para detectar el reproductor automáticamente."),
-      h("label", { class: "field" }, h("span", { class: "field-label" }, "Ruta de mpv.exe"), mpvInput),
-      h("label", { class: "field" }, h("span", { class: "field-label" }, "Ruta de vlc.exe"), vlcInput),
+    group(
+      "Rutas",
+      "Déjalas vacías para detectar el reproductor automáticamente.",
+      row("Ejecutable de mpv", null, mpvInput, "set-row-field"),
+      row("Ejecutable de VLC", null, vlcInput, "set-row-field"),
     ),
-    h(
-      "section",
-      { class: "panel" },
-      panelHead("skip", "Reproducción"),
+    group(
+      "Reproducción",
+      null,
       h(
         "label",
-        { class: "check toggle-row" },
+        { class: "set-row set-row-toggle" },
         h(
           "span",
-          { class: "toggle-text" },
-          h("span", { class: "toggle-title" }, "Pasar al siguiente episodio automáticamente"),
-          h("span", { class: "toggle-desc" }, "Al terminar un episodio en el reproductor integrado, empieza el siguiente."),
+          { class: "set-text" },
+          h("span", { class: "set-label" }, "Siguiente episodio automático"),
+          h("span", { class: "set-desc" }, "Al terminar un episodio en el reproductor integrado, empieza el siguiente."),
         ),
         autoNext,
       ),
     ),
-    h("div", { class: "settings-actions" }, saveBtn),
-    updatesPanel(signal),
-    h(
-      "section",
-      { class: "panel panel-help" },
-      panelHead(
-        "info",
-        "Ayuda",
-        "El reproductor integrado funciona sin instalar nada. Si prefieres mpv o VLC, instálalos desde sus páginas oficiales; la app los detecta automáticamente o puedes indicar la ruta del ejecutable arriba.",
-      ),
-      link("mpv", MPV_URL),
-      link("VLC", VLC_URL),
+    h("div", { class: "settings-save" }, saveBtn),
+    updatesGroup(signal),
+    group(
+      "Reproductores externos",
+      "Opcionales. La app los detecta solos o usa la ruta que indiques arriba.",
+      row("mpv", h("code", null, MPV_URL), openBtn(MPV_URL)),
+      row("VLC", h("code", null, VLC_URL), openBtn(VLC_URL)),
     ),
   );
 }
 
-function updatesPanel(signal: AbortSignal): HTMLElement {
-  const version = h("strong", null, "…");
+function updatesGroup(signal: AbortSignal): HTMLElement {
+  const version = h("code", null, "…");
   getVersion().then(
     (v) => {
       version.textContent = v;
     },
     (e: unknown) => console.warn("getVersion", e),
   );
-  const status = h("p", { class: "update-status", attrs: { "aria-live": "polite" } });
+  const status = h("p", { class: "set-status", attrs: { "aria-live": "polite" } });
   const checkBtn: HTMLButtonElement = h(
     "button",
     {
@@ -220,17 +216,12 @@ function updatesPanel(signal: AbortSignal): HTMLElement {
       },
     },
     icon("replay"),
-    "Buscar actualizaciones",
+    "Buscar",
   );
-  return h(
-    "section",
-    { class: "panel" },
-    panelHead(
-      "download",
-      "Actualizaciones",
-      "La app busca versiones nuevas en GitHub cada vez que se abre y las descarga sola; sólo tienes que reiniciarla para instalarlas.",
-    ),
-    h("div", { class: "update-row" }, h("span", { class: "update-version" }, "Versión instalada ", version), checkBtn),
+  return group(
+    "Actualizaciones",
+    "Las versiones nuevas se descargan solas desde GitHub; sólo hay que reiniciar para instalarlas.",
+    row("Versión instalada", version, checkBtn),
     status,
   );
 }

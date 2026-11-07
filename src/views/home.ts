@@ -3,67 +3,65 @@ import type { EpisodeCard, HistoryEntry } from "../api";
 import { cachedAnime } from "../data";
 import { router, type ViewContext } from "../router";
 import { detailRoute, playerRoute } from "../routes";
-import { empty, errMsg, errorBox, h, icon, kbd, loadInto, poster, skeleton, toast } from "../ui";
+import { setCrumbs } from "../shell";
+import { empty, fact, h, icon, kbd, loadInto, poster, skeleton } from "../ui";
+
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
 export function homeView(root: HTMLElement, ctx: ViewContext): void {
   const { signal } = ctx;
+  setCrumbs("Inicio");
 
-  const heroSlot = h("div", { class: "hero-slot" });
-
-  const historyBody = h("div", { class: "row-scroll" });
-  const historySection = h(
-    "section",
-    { class: "section", hidden: true },
-    h(
-      "div",
-      { class: "section-head" },
-      h("h2", { class: "section-title" }, h("span", { class: "section-icon" }, icon("clock")), "Continuar viendo"),
-    ),
-    historyBody,
-  );
-
+  const lead = h("div", { class: "home-lead" });
   const latestBody = h("div");
-  const latestSection = h(
-    "section",
-    { class: "section" },
+  const latestCount = h("span", { class: "rule-count" });
+
+  root.append(
     h(
       "div",
-      { class: "section-head" },
-      h("h2", { class: "section-title" }, h("span", { class: "section-icon" }, icon("sparkle")), "Últimos episodios"),
-      h("span", { class: "section-note" }, "Recién publicados"),
+      { class: "page home-page" },
+      lead,
+      h(
+        "section",
+        { class: "block" },
+        h(
+          "header",
+          { class: "rule" },
+          h("h2", { class: "rule-title" }, "Últimos episodios"),
+          latestCount,
+          h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
+          h("span", { class: "rule-note" }, "Recién publicados"),
+        ),
+        latestBody,
+      ),
     ),
-    latestBody,
   );
 
-  root.append(h("div", { class: "page home-page" }, heroSlot, historySection, latestSection));
-
-  const loadHistory = async () => {
+  const renderLead = async () => {
     try {
       const list = await api.historyList();
       if (signal.aborted) return;
       list.sort((a, b) => b.updatedAt - a.updatedAt);
-      const [first, ...rest] = list;
-      heroSlot.replaceChildren(first ? heroCard(first, loadHistory) : welcome());
-      historySection.hidden = rest.length === 0;
-      historyBody.replaceChildren(...rest.map((entry) => historyCard(entry, loadHistory)));
-    } catch (e) {
-      if (signal.aborted) return;
-      heroSlot.replaceChildren();
-      historySection.hidden = false;
-      historyBody.replaceChildren(errorBox(errMsg(e), () => void loadHistory()));
+      lead.replaceChildren(list[0] ? resumePanel(list[0], list.length) : welcome());
+    } catch {
+      if (!signal.aborted) lead.replaceChildren(welcome());
     }
   };
-  void loadHistory();
+  void renderLead();
+  const onHistory = () => void renderLead();
+  window.addEventListener(api.HISTORY_EVENT, onHistory);
+  signal.addEventListener("abort", () => window.removeEventListener(api.HISTORY_EVENT, onHistory), { once: true });
 
   loadInto(
     latestBody,
     signal,
     api.latest,
     (list) => {
+      latestCount.textContent = String(list.length);
       latestBody.append(
         list.length
-          ? h("div", { class: "grid grid-wide" }, list.map(latestCard))
-          : empty("No hay episodios recientes.", "Vuelve a intentarlo en unos minutos o busca un animé arriba."),
+          ? h("div", { class: "grid grid-wide" }, list.map((ep, i) => latestCard(ep, i)))
+          : empty("No hay episodios recientes.", "Vuelve a intentarlo en unos minutos o busca un animé."),
       );
     },
     "Cargando últimos episodios…",
@@ -71,170 +69,91 @@ export function homeView(root: HTMLElement, ctx: ViewContext): void {
   );
 }
 
-async function removeEntry(entry: HistoryEntry, btn: HTMLButtonElement, refresh: () => Promise<void>): Promise<void> {
-  btn.disabled = true;
-  try {
-    await api.historyRemove(entry.animeUrl);
-    await refresh();
-  } catch (err) {
-    btn.disabled = false;
-    toast(errMsg(err), "error");
-  }
-}
-
 function welcome(): HTMLElement {
   return h(
     "section",
     { class: "welcome" },
-    h("span", { class: "welcome-icon" }, icon("play")),
-    h("h1", { class: "welcome-title" }, "¿Qué vas a ver hoy?"),
+    h("p", { class: "eyebrow" }, "Anime Watcher"),
+    h("h1", { class: "display" }, "¿Qué vas a ver hoy?"),
     h(
       "p",
-      { class: "welcome-text" },
-      "Busca un animé por su nombre o elige uno de los últimos episodios. Lo que empieces a ver aparecerá aquí para continuar donde lo dejaste.",
+      { class: "lede" },
+      "Busca un animé por su nombre o elige uno de los episodios recién publicados. Lo que empieces a ver se guarda en la barra lateral para continuar donde lo dejaste.",
     ),
-    h("p", { class: "welcome-hint" }, "Pulsa ", kbd("Ctrl"), kbd("K"), " para buscar"),
+    h("p", { class: "hint" }, kbd(isMac ? "⌘" : "Ctrl"), kbd("K"), h("span", null, "para buscar")),
   );
 }
 
-/** Bloque destacado con el animé visto más recientemente. */
-function heroCard(entry: HistoryEntry, refresh: () => Promise<void>): HTMLElement {
-  const backdrop: HTMLElement[] = [];
-  if (entry.cover) {
-    const img = document.createElement("img");
-    img.className = "hero-backdrop";
-    img.alt = "";
-    img.referrerPolicy = "no-referrer";
-    img.addEventListener("error", () => img.remove(), { once: true });
-    img.src = entry.cover;
-    backdrop.push(img);
-  }
-
-  const removeBtn: HTMLButtonElement = h(
-    "button",
-    {
-      class: "btn btn-ghost",
-      title: "Quitar de Continuar viendo",
-      onclick: () => void removeEntry(entry, removeBtn, refresh),
-    },
-    icon("x"),
-    "Quitar",
-  );
-
-  const watchedCount = entry.watched.length;
-
+/** Panel destacado con el último animé visto: portada + datos + acciones. */
+function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
+  const watched = entry.watched.length;
+  const when = relativeTime(entry.updatedAt);
   return h(
     "section",
-    { class: "hero", attrs: { "aria-label": "Seguir viendo" } },
-    backdrop,
+    { class: "resume", attrs: { "aria-label": "Seguir viendo" } },
+    h(
+      "button",
+      { class: "resume-cover", title: `Ver ficha de ${entry.title}`, onclick: () => router.navigate(detailRoute(entry.animeUrl)) },
+      poster(entry.cover, entry.title, "ratio-poster"),
+    ),
     h(
       "div",
-      { class: "hero-inner" },
+      { class: "resume-body" },
+      h("p", { class: "eyebrow" }, "Seguir viendo", h("span", { class: "eyebrow-dim" }, `· ${when}`)),
+      h("h1", { class: "display" }, entry.title),
       h(
-        "button",
-        { class: "hero-cover", title: `Ver ficha de ${entry.title}`, onclick: () => router.navigate(detailRoute(entry.animeUrl)) },
-        poster(entry.cover, entry.title, "ratio-poster"),
+        "dl",
+        { class: "facts" },
+        fact("Último", `EP ${entry.lastEpisode}`),
+        fact("Vistos", String(watched)),
+        fact("En biblioteca", String(total)),
       ),
       h(
         "div",
-        { class: "hero-info" },
-        h("p", { class: "eyebrow" }, "Seguir viendo"),
-        h("h1", { class: "hero-title" }, entry.title),
+        { class: "actions" },
         h(
-          "p",
-          { class: "hero-meta" },
-          h("span", { class: "hero-ep" }, `Episodio ${entry.lastEpisode}`),
-          watchedCount > 0
-            ? h("span", null, ` · ${watchedCount} ${watchedCount === 1 ? "episodio visto" : "episodios vistos"}`)
-            : null,
+          "button",
+          {
+            class: "btn btn-primary",
+            onclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
+          },
+          icon("play"),
+          `Continuar episodio ${entry.lastEpisode}`,
         ),
-        h(
-          "div",
-          { class: "hero-actions" },
-          h(
-            "button",
-            {
-              class: "btn btn-primary btn-lg",
-              onclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
-            },
-            icon("play"),
-            `Continuar · Episodio ${entry.lastEpisode}`,
-          ),
-          h("button", { class: "btn btn-lg", onclick: () => router.navigate(detailRoute(entry.animeUrl)) }, icon("list"), "Ver ficha"),
-          removeBtn,
-        ),
+        h("button", { class: "btn", onclick: () => router.navigate(detailRoute(entry.animeUrl)) }, icon("list"), "Episodios"),
       ),
     ),
   );
 }
 
-function historyCard(entry: HistoryEntry, refresh: () => Promise<void>): HTMLElement {
-  const openDetail = () => router.navigate(detailRoute(entry.animeUrl));
-
-  const removeBtn: HTMLButtonElement = h(
-    "button",
-    {
-      class: "icon-btn card-remove",
-      title: "Quitar de Continuar viendo",
-      attrs: { "aria-label": `Quitar ${entry.title} de Continuar viendo` },
-      onclick: (e) => {
-        e.stopPropagation();
-        void removeEntry(entry, removeBtn, refresh);
-      },
-    },
-    icon("x"),
-  );
-
-  const playBtn = h(
-    "button",
-    {
-      class: "play-fab",
-      title: `Ver episodio ${entry.lastEpisode}`,
-      attrs: { "aria-label": `Ver ${entry.title}, episodio ${entry.lastEpisode}` },
-      onclick: (e) => {
-        e.stopPropagation();
-        router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl)));
-      },
-    },
-    icon("play"),
-  );
-
-  return h(
-    "div",
-    {
-      class: "card hist-card",
-      tabIndex: 0,
-      role: "button",
-      title: entry.title,
-      onclick: openDetail,
-      onkeydown: (e) => {
-        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          openDetail();
-        }
-      },
-    },
-    h("div", { class: "card-media" }, poster(entry.cover, entry.title, "ratio-poster"), removeBtn, playBtn),
-    h(
-      "div",
-      { class: "card-body" },
-      h("div", { class: "card-title" }, entry.title),
-      h("div", { class: "card-meta accent" }, `Episodio ${entry.lastEpisode}`),
-    ),
-  );
+function relativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const min = Math.round(diff / 60_000);
+  if (min < 1) return "ahora";
+  if (min < 60) return `hace ${min} min`;
+  const hours = Math.round(min / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "ayer";
+  if (days < 30) return `hace ${days} días`;
+  return new Date(ms).toLocaleDateString("es", { day: "numeric", month: "short" });
 }
 
-function latestCard(ep: EpisodeCard): HTMLElement {
+function latestCard(ep: EpisodeCard, index: number): HTMLElement {
   return h(
     "button",
-    { class: "card ep-card", title: `${ep.title} · Episodio ${ep.number}`, onclick: () => router.navigate(playerRoute(ep.url)) },
+    {
+      class: "tile",
+      title: `${ep.title} · Episodio ${ep.number}`,
+      style: `--i:${Math.min(index, 16)}`,
+      onclick: () => router.navigate(playerRoute(ep.url)),
+    },
+    h("div", { class: "tile-media" }, poster(ep.thumb, ep.title, "ratio-wide"), h("span", { class: "tile-play" }, icon("play"))),
     h(
       "div",
-      { class: "card-media" },
-      poster(ep.thumb, ep.title, "ratio-wide"),
-      h("span", { class: "badge badge-ep" }, `EP ${ep.number}`),
-      h("span", { class: "card-play" }, icon("play")),
+      { class: "tile-caption" },
+      h("span", { class: "tile-title" }, ep.title),
+      h("span", { class: "tile-meta" }, `EP ${String(ep.number).padStart(2, "0")}`),
     ),
-    h("div", { class: "card-body" }, h("div", { class: "card-title" }, ep.title)),
   );
 }

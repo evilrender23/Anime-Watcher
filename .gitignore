@@ -5,3 +5,4 @@ src-tauri/gen/schemas/
 *.log
 # Claves privadas de firma del actualizador (viven en ~/.tauri, nunca en el repo)
 *.key
+.DS_Store

@@ -2,13 +2,16 @@ import * as api from "../api";
 import type { AnimeDetail, Episode, HistoryEntry } from "../api";
 import { getAnime, sameUrl } from "../data";
 import { router, type ViewContext } from "../router";
-import { playerRoute } from "../routes";
-import { empty, h, icon, loadInto, poster, skeleton, toast } from "../ui";
+import { homeRoute, playerRoute } from "../routes";
+import { setCrumbs } from "../shell";
+import { empty, fact, h, icon, loadInto, poster, skeleton, toast } from "../ui";
 
 /** Orden de la lista de episodios; se conserva entre fichas durante la sesión. */
 let sortDesc = false;
 
 export function detailView(root: HTMLElement, ctx: ViewContext, url: string): void {
+  const home = { label: "Inicio", onClick: () => router.navigate(homeRoute()) };
+  setCrumbs(home, "Ficha");
   const page = h("div", { class: "page detail-page" });
   root.append(page);
   loadInto(
@@ -23,6 +26,7 @@ export function detailView(root: HTMLElement, ctx: ViewContext, url: string): vo
         }),
       ]),
     ([detail, history]) => {
+      setCrumbs(home, detail.title);
       const entry = history.find((x) => sameUrl(x.animeUrl, url) || sameUrl(x.animeUrl, detail.url)) ?? null;
       renderDetail(page, detail, entry);
     },
@@ -35,99 +39,97 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
   const episodes = detail.episodes;
   const play = (ep: Episode) => router.navigate(playerRoute(ep.url, detail));
 
-  // Botones principales: continuar donde se quedó o empezar desde el primero.
-  const actions = h("div", { class: "detail-actions" });
+  // Acciones: continuar donde se quedó o empezar desde el primero.
+  const actions = h("div", { class: "actions" });
   if (entry) {
     actions.append(
       h(
         "button",
-        { class: "btn btn-primary btn-lg", onclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, detail)) },
+        { class: "btn btn-primary", onclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, detail)) },
         icon("play"),
-        `Continuar · Episodio ${entry.lastEpisode}`,
+        `Continuar episodio ${entry.lastEpisode}`,
       ),
     );
     let lastIndex = episodes.findIndex((e) => sameUrl(e.url, entry.lastEpisodeUrl));
     if (lastIndex < 0) lastIndex = episodes.findIndex((e) => e.number === entry.lastEpisode);
     const next = lastIndex >= 0 ? episodes[lastIndex + 1] : undefined;
     if (next) {
-      actions.append(
-        h("button", { class: "btn btn-lg", onclick: () => play(next) }, icon("next"), `Siguiente · Episodio ${next.number}`),
-      );
+      actions.append(h("button", { class: "btn", onclick: () => play(next) }, icon("next"), `Siguiente · ${next.number}`));
     }
   } else if (episodes.length) {
     const first = episodes[0];
     actions.append(
-      h("button", { class: "btn btn-primary btn-lg", onclick: () => play(first) }, icon("play"), `Ver episodio ${first.number}`),
+      h("button", { class: "btn btn-primary", onclick: () => play(first) }, icon("play"), `Ver episodio ${first.number}`),
     );
   }
 
   const status = detail.status?.trim();
-  const badges = h(
-    "div",
-    { class: "badges" },
-    status
-      ? h(
-          "span",
-          { class: /emisi/i.test(status) ? "badge badge-live" : "badge" },
-          /emisi/i.test(status) ? h("span", { class: "live-dot", attrs: { "aria-hidden": "true" } }) : null,
-          status,
-        )
-      : null,
-    h("span", { class: "badge" }, `${episodes.length} ${episodes.length === 1 ? "episodio" : "episodios"}`),
-  );
+  const live = !!status && /emisi/i.test(status);
+  const watchedCount = entry?.watched.length ?? 0;
 
-  const backdrop: HTMLElement[] = [];
-  if (detail.cover) {
-    const img = document.createElement("img");
-    img.className = "detail-backdrop";
-    img.alt = "";
-    img.referrerPolicy = "no-referrer";
-    img.addEventListener("error", () => img.remove(), { once: true });
-    img.src = detail.cover;
-    backdrop.push(img);
-  }
-
-  const hero = h(
-    "section",
-    { class: "detail-hero" },
-    backdrop,
+  // Columna izquierda: portada + ficha técnica (pegajosa al hacer scroll).
+  const aside = h(
+    "aside",
+    { class: "detail-aside" },
+    poster(detail.cover, detail.title, "ratio-poster detail-cover"),
     h(
-      "div",
-      { class: "detail-hero-inner" },
-      poster(detail.cover, detail.title, "ratio-poster detail-cover"),
-      h(
-        "div",
-        { class: "detail-info" },
-        h("p", { class: "eyebrow" }, "Ficha del animé"),
-        h("h1", { class: "detail-title" }, detail.title),
-        detail.altTitle ? h("div", { class: "detail-alt" }, detail.altTitle) : null,
-        badges,
-        detail.genres.length
-          ? h("div", { class: "genres" }, detail.genres.map((g) => h("span", { class: "genre" }, g)))
-          : null,
-        detail.synopsis ? h("p", { class: "synopsis" }, detail.synopsis.trim()) : null,
-        actions,
-      ),
+      "dl",
+      { class: "spec" },
+      status
+        ? fact("Estado", h("span", { class: live ? "status status-live" : "status" }, live ? h("i", { class: "live-dot" }) : null, status))
+        : null,
+      fact("Episodios", String(episodes.length)),
+      entry ? fact("Vistos", `${watchedCount} / ${episodes.length}`) : null,
+      entry ? fact("Último", `EP ${entry.lastEpisode}`) : null,
     ),
+    detail.genres.length ? h("div", { class: "tags" }, detail.genres.map((g) => h("span", { class: "tag" }, g))) : null,
   );
 
-  page.append(hero, episodeSection(detail, entry, play));
+  // Progreso visible sólo si ya se empezó a ver.
+  const progress =
+    entry && episodes.length
+      ? h(
+          "div",
+          { class: "progress", title: `${watchedCount} de ${episodes.length} episodios vistos` },
+          h("span", { class: "progress-bar", style: `--p:${Math.min(1, watchedCount / episodes.length)}` }),
+        )
+      : null;
+
+  const main = h(
+    "div",
+    { class: "detail-main" },
+    h(
+      "header",
+      { class: "detail-head" },
+      h("p", { class: "eyebrow" }, "Ficha del animé"),
+      h("h1", { class: "display" }, detail.title),
+      detail.altTitle ? h("p", { class: "alt-title" }, detail.altTitle) : null,
+      progress,
+      detail.synopsis ? h("p", { class: "lede synopsis" }, detail.synopsis.trim()) : null,
+      actions,
+    ),
+    episodeSection(detail, entry, play),
+  );
+
+  // Fondo: la portada muy difuminada detrás de la cabecera.
+  const backdrop = detail.cover
+    ? h("div", { class: "backdrop", attrs: { "aria-hidden": "true" } }, poster(detail.cover, "", "backdrop-img"))
+    : null;
+
+  if (backdrop) page.append(backdrop);
+  page.append(h("div", { class: "detail-layout" }, aside, main));
 }
 
 function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (ep: Episode) => void): HTMLElement {
   const episodes = detail.episodes;
-  const title = h(
-    "div",
-    { class: "section-head" },
-    h(
-      "h2",
-      { class: "section-title" },
-      h("span", { class: "section-icon" }, icon("list")),
-      "Episodios",
-      h("span", { class: "section-count" }, String(episodes.length)),
-    ),
+  const head = h(
+    "header",
+    { class: "rule" },
+    h("h2", { class: "rule-title" }, "Episodios"),
+    h("span", { class: "rule-count" }, String(episodes.length)),
+    h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
   );
-  const section = h("section", { class: "section episodes" }, title);
+  const section = h("section", { class: "block episodes" }, head);
 
   if (!episodes.length) {
     section.append(empty("No se encontraron episodios, intenta con otro animé."));
@@ -142,7 +144,7 @@ function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (
   const sortBtn = h(
     "button",
     {
-      class: "btn btn-sm",
+      class: "btn btn-sm btn-quiet",
       title: "Cambiar el orden",
       onclick: () => {
         sortDesc = !sortDesc;
@@ -156,8 +158,9 @@ function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (
   const gotoInput = h("input", {
     type: "number",
     class: "input input-sm goto-input",
-    placeholder: "Nº",
+    placeholder: "Ir a…",
     min: "0",
+    attrs: { "aria-label": "Ir al episodio" },
     onkeydown: (e) => {
       if (e.key !== "Enter") return;
       const raw = gotoInput.value.trim();
@@ -168,49 +171,39 @@ function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (
     },
   });
 
-  title.append(
-    h(
-      "div",
-      { class: "episode-tools" },
-      h("label", { class: "goto" }, "Ir al episodio", gotoInput),
-      sortBtn,
-    ),
-  );
+  head.append(h("div", { class: "rule-tools" }, gotoInput, sortBtn));
 
   const renderGrid = () => {
-    sortLabel.textContent = sortDesc ? "Descendente" : "Ascendente";
+    sortLabel.textContent = sortDesc ? "Desc." : "Asc.";
     const list = sortDesc ? [...episodes].reverse() : episodes;
     grid.replaceChildren(
       ...list.map((ep) => {
         const isLast = lastNumber !== null && ep.number === lastNumber;
         const isWatched = watched.has(ep.number);
-        const cls = ["ep-btn", isWatched ? "watched" : "", isLast ? "last" : ""].filter(Boolean).join(" ");
+        const cls = ["ep", isWatched ? "watched" : "", isLast ? "last" : ""].filter(Boolean).join(" ");
         const label = `Episodio ${ep.number}${isLast ? " · último visto" : isWatched ? " · visto" : ""}`;
         return h(
           "button",
           { class: cls, title: label, attrs: { "aria-label": label }, onclick: () => play(ep) },
-          h("span", { class: "ep-num" }, String(ep.number)),
-          isLast
-            ? h("span", { class: "ep-mark ep-mark-last" }, icon("play"))
-            : isWatched
-              ? h("span", { class: "ep-mark" }, icon("check"))
-              : null,
+          h("span", { class: "ep-num" }, String(ep.number).padStart(2, "0")),
+          isLast ? icon("play", "icon ep-mark") : isWatched ? icon("check", "icon ep-mark") : null,
         );
       }),
     );
   };
   renderGrid();
 
-  const legend = entry
-    ? h(
-        "div",
-        { class: "ep-legend" },
-        h("span", { class: "legend-item" }, h("span", { class: "ep-mark ep-mark-last" }, icon("play")), "Último visto"),
-        h("span", { class: "legend-item" }, h("span", { class: "ep-mark" }, icon("check")), "Visto"),
-      )
-    : null;
-
   section.append(grid);
-  if (legend) section.append(legend);
+  if (entry) {
+    section.append(
+      h(
+        "div",
+        { class: "legend" },
+        h("span", { class: "legend-item" }, h("i", { class: "swatch swatch-last" }), "Último visto"),
+        h("span", { class: "legend-item" }, h("i", { class: "swatch swatch-watched" }), "Visto"),
+        h("span", { class: "legend-item" }, h("i", { class: "swatch" }), "Pendiente"),
+      ),
+    );
+  }
   return section;
 }

@@ -85,6 +85,11 @@ export function icon(name: IconName, cls = "icon"): SVGSVGElement {
   return svg;
 }
 
+/** Par etiqueta/valor para listas de datos (<dl>). */
+export function fact(label: string, value: string | Node): HTMLElement {
+  return h("div", { class: "fact" }, h("dt", null, label), h("dd", null, value));
+}
+
 /** Tecla o atajo de teclado; `title` describe lo que hace. */
 export function kbd(key: string, title?: string): HTMLElement {
   return h("kbd", title ? { class: "kbd", title } : { class: "kbd" }, key);

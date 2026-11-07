@@ -124,6 +124,17 @@ export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<void>("save_settings", { settings });
 export const detectPlayers = () => invoke<DetectedPlayers>("detect_players");
 
+/** Se emite en `window` cada vez que cambia el historial (la barra lateral lo escucha). */
+export const HISTORY_EVENT = "aw:history-changed";
+const historyChanged = () => window.dispatchEvent(new Event(HISTORY_EVENT));
+
 export const historyList = () => invoke<HistoryEntry[]>("history_list");
-export const historyMark = (mark: HistoryMark) => invoke<HistoryEntry>("history_mark", { mark });
-export const historyRemove = (animeUrl: string) => invoke<void>("history_remove", { animeUrl });
+export const historyMark = async (mark: HistoryMark) => {
+  const entry = await invoke<HistoryEntry>("history_mark", { mark });
+  historyChanged();
+  return entry;
+};
+export const historyRemove = async (animeUrl: string) => {
+  await invoke<void>("history_remove", { animeUrl });
+  historyChanged();
+};
