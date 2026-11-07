@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api";
 import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
-import { errMsg, h, icon, loadInto, skeleton, toast } from "../ui";
+import { errMsg, h, icon, loadInto, skeleton, toast, type IconName } from "../ui";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
@@ -13,7 +13,12 @@ export function settingsView(root: HTMLElement, ctx: ViewContext): void {
     h(
       "div",
       { class: "page settings-page" },
-      h("div", { class: "page-head" }, h("h1", { class: "page-title" }, "Ajustes")),
+      h(
+        "div",
+        { class: "page-head" },
+        h("h1", { class: "page-title" }, "Ajustes"),
+        h("p", { class: "page-sub" }, "Elige cómo quieres ver tus episodios."),
+      ),
       body,
     ),
   );
@@ -26,6 +31,14 @@ export function settingsView(root: HTMLElement, ctx: ViewContext): void {
     () => skeleton("panels", 3, "Cargando ajustes…"),
   );
 }
+
+const panelHead = (name: IconName, title: string, desc?: string) =>
+  h(
+    "div",
+    { class: "panel-head" },
+    h("span", { class: "panel-icon" }, icon(name)),
+    h("div", { class: "panel-heading" }, h("h2", { class: "panel-title" }, title), desc ? h("p", { class: "panel-desc" }, desc) : null),
+  );
 
 function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, detected: DetectedPlayers): void {
   let player: PlayerKind = settings.player;
@@ -121,7 +134,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
     h(
       "section",
       { class: "panel" },
-      h("h2", { class: "panel-title" }, "Reproductor"),
+      panelHead("tv", "Reproductor", "Dónde se abren los episodios."),
       h(
         "div",
         { class: "radio-group", role: "radiogroup" },
@@ -133,15 +146,14 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
     h(
       "section",
       { class: "panel" },
-      h("h2", { class: "panel-title" }, "Rutas manuales"),
-      h("p", { class: "panel-desc" }, "Déjalas vacías para detectar el reproductor automáticamente."),
+      panelHead("folder", "Rutas manuales", "Déjalas vacías para detectar el reproductor automáticamente."),
       h("label", { class: "field" }, h("span", { class: "field-label" }, "Ruta de mpv.exe"), mpvInput),
       h("label", { class: "field" }, h("span", { class: "field-label" }, "Ruta de vlc.exe"), vlcInput),
     ),
     h(
       "section",
       { class: "panel" },
-      h("h2", { class: "panel-title" }, "Reproducción"),
+      panelHead("skip", "Reproducción"),
       h(
         "label",
         { class: "check toggle-row" },
@@ -158,10 +170,9 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
     h(
       "section",
       { class: "panel panel-help" },
-      h("h2", { class: "panel-title" }, "Ayuda"),
-      h(
-        "p",
-        { class: "panel-desc" },
+      panelHead(
+        "info",
+        "Ayuda",
         "El reproductor integrado funciona sin instalar nada. Si prefieres mpv o VLC, instálalos desde sus páginas oficiales; la app los detecta automáticamente o puedes indicar la ruta del ejecutable arriba.",
       ),
       link("mpv", MPV_URL),

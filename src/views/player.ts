@@ -6,7 +6,7 @@ import type { AnimeDetail, Episode, EpisodeInfo, ExternalPlayer, ResolvedStream,
 import { cachedAnime, getAnime, sameUrl } from "../data";
 import { router, type Cleanup, type ViewContext } from "../router";
 import { detailRoute, playerRoute, settingsRoute } from "../routes";
-import { errMsg, h, icon, loadInto, poster, type IconName } from "../ui";
+import { errMsg, h, icon, kbd, loadInto, poster, type IconName } from "../ui";
 
 const PLAYER_NAMES: Record<ExternalPlayer, string> = { mpv: "mpv", vlc: "VLC" };
 /** Tiempo máximo para recibir 'loadedmetadata' antes de descartar un servidor. */
@@ -86,7 +86,17 @@ function mountPlayer(
       ),
       h("div", { class: "player-sub" }, epLabel),
     ),
-    h("span", { class: "player-hint" }, "Atajos: Espacio · ← → · F · N · P"),
+    h(
+      "div",
+      { class: "player-hint", attrs: { "aria-label": "Atajos de teclado" } },
+      h("span", { class: "player-hint-label" }, "Atajos"),
+      kbd("Espacio", "Pausar o reanudar"),
+      kbd("←", `Retroceder ${SEEK_SECONDS} s`),
+      kbd("→", `Avanzar ${SEEK_SECONDS} s`),
+      kbd("F", "Pantalla completa"),
+      kbd("N", "Siguiente episodio"),
+      kbd("P", "Episodio anterior"),
+    ),
   );
   const mediaLayer = h("div", { class: "stage-media" });
   const overlay = h("div", { class: "stage-overlay", hidden: true });
@@ -173,30 +183,42 @@ function mountPlayer(
     if (!info.servers.length) chips.append(h("span", { class: "muted" }, "Sin servidores"));
   }
 
-  function button(label: string, name: IconName, onClick: () => void, disabled = false): HTMLButtonElement {
-    return h("button", { class: "btn", disabled, onclick: onClick }, icon(name), label);
+  function button(label: string, name: IconName, onClick: () => void, disabled = false, title = label): HTMLButtonElement {
+    return h("button", { class: "btn", title, disabled, onclick: onClick }, icon(name), label);
   }
 
   function renderControls(): void {
     const { prev, next } = neighbours();
-    const isFullscreen = !!document.fullscreenElement;
+    const fullscreenLabel = document.fullscreenElement ? "Salir de pantalla completa (F)" : "Pantalla completa (F)";
     controls.replaceChildren(
       h(
         "div",
         { class: "controls-group", role: "group", attrs: { "aria-label": "Episodio" } },
-        button("Anterior", "back", () => prev && goTo(prev), !prev),
-        button("Siguiente", "next", () => next && goTo(next), !next),
-        button("Ver de nuevo", "replay", replay, !ready),
+        button("Anterior", "back", () => prev && goTo(prev), !prev, prev ? `Episodio ${prev.number} (P)` : "Anterior"),
+        button("Siguiente", "next", () => next && goTo(next), !next, next ? `Episodio ${next.number} (N)` : "Siguiente"),
+        h(
+          "button",
+          { class: "icon-btn", title: "Ver de nuevo", disabled: !ready, attrs: { "aria-label": "Ver de nuevo" }, onclick: replay },
+          icon("replay"),
+        ),
         button("Episodios", "list", openEpisodes, !info.animeUrl),
       ),
       h(
         "div",
         { class: "controls-group controls-out", role: "group", attrs: { "aria-label": "Abrir en" } },
-        button("Abrir en navegador", "external", openInBrowser),
+        h("span", { class: "controls-label", attrs: { "aria-hidden": "true" } }, "Abrir en"),
+        button("Navegador", "external", openInBrowser, false, "Abrir en el navegador"),
         mode === "builtin" && ready && stream
-          ? [button("Abrir en mpv", "tv", () => void openExternal("mpv")), button("Abrir en VLC", "tv", () => void openExternal("vlc"))]
+          ? [
+              button("mpv", "tv", () => void openExternal("mpv"), false, "Abrir en mpv"),
+              button("VLC", "tv", () => void openExternal("vlc"), false, "Abrir en VLC"),
+            ]
           : null,
-        button(isFullscreen ? "Salir de pantalla completa" : "Pantalla completa", "fullscreen", toggleFullscreen),
+      ),
+      h(
+        "button",
+        { class: "icon-btn", title: fullscreenLabel, attrs: { "aria-label": fullscreenLabel }, onclick: toggleFullscreen },
+        icon("fullscreen"),
       ),
     );
   }

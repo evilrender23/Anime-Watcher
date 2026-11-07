@@ -3,7 +3,7 @@ import type { EpisodeCard, HistoryEntry } from "../api";
 import { cachedAnime } from "../data";
 import { router, type ViewContext } from "../router";
 import { detailRoute, playerRoute } from "../routes";
-import { empty, errMsg, errorBox, h, icon, loadInto, poster, skeleton, toast } from "../ui";
+import { empty, errMsg, errorBox, h, icon, kbd, loadInto, poster, skeleton, toast } from "../ui";
 
 export function homeView(root: HTMLElement, ctx: ViewContext): void {
   const { signal } = ctx;
@@ -14,7 +14,11 @@ export function homeView(root: HTMLElement, ctx: ViewContext): void {
   const historySection = h(
     "section",
     { class: "section", hidden: true },
-    h("div", { class: "section-head" }, h("h2", { class: "section-title" }, "Continuar viendo")),
+    h(
+      "div",
+      { class: "section-head" },
+      h("h2", { class: "section-title" }, h("span", { class: "section-icon" }, icon("clock")), "Continuar viendo"),
+    ),
     historyBody,
   );
 
@@ -25,7 +29,7 @@ export function homeView(root: HTMLElement, ctx: ViewContext): void {
     h(
       "div",
       { class: "section-head" },
-      h("h2", { class: "section-title" }, "Últimos episodios"),
+      h("h2", { class: "section-title" }, h("span", { class: "section-icon" }, icon("sparkle")), "Últimos episodios"),
       h("span", { class: "section-note" }, "Recién publicados"),
     ),
     latestBody,
@@ -82,13 +86,14 @@ function welcome(): HTMLElement {
   return h(
     "section",
     { class: "welcome" },
-    h("p", { class: "eyebrow" }, "Bienvenido"),
+    h("span", { class: "welcome-icon" }, icon("play")),
     h("h1", { class: "welcome-title" }, "¿Qué vas a ver hoy?"),
     h(
       "p",
       { class: "welcome-text" },
       "Busca un animé por su nombre o elige uno de los últimos episodios. Lo que empieces a ver aparecerá aquí para continuar donde lo dejaste.",
     ),
+    h("p", { class: "welcome-hint" }, "Pulsa ", kbd("Ctrl"), kbd("K"), " para buscar"),
   );
 }
 
@@ -227,13 +232,9 @@ function latestCard(ep: EpisodeCard): HTMLElement {
       "div",
       { class: "card-media" },
       poster(ep.thumb, ep.title, "ratio-wide"),
+      h("span", { class: "badge badge-ep" }, `EP ${ep.number}`),
       h("span", { class: "card-play" }, icon("play")),
     ),
-    h(
-      "div",
-      { class: "card-body card-body-row" },
-      h("div", { class: "card-title" }, ep.title),
-      h("span", { class: "badge badge-ep" }, `EP ${ep.number}`),
-    ),
+    h("div", { class: "card-body" }, h("div", { class: "card-title" }, ep.title)),
   );
 }

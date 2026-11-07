@@ -65,6 +65,10 @@ const ICONS = {
   check: "M5 12l5 5L20 7",
   info: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 11v5 M12 7.5h.01",
   film: "M4 4h16v16H4z M8 4v16 M16 4v16 M4 9h4 M4 15h4 M16 9h4 M16 15h4",
+  clock: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z M12 7.5V12l3 2",
+  sparkle: "M12 3.5l1.8 4.9 4.9 1.8-4.9 1.8L12 16.9l-1.8-4.9-4.9-1.8 4.9-1.8z M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z",
+  folder: "M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
+  skip: "M5.5 6.5v11l8.5-5.5z M18 6v12",
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -78,6 +82,11 @@ export function icon(name: IconName, cls = "icon"): SVGSVGElement {
   path.setAttribute("d", ICONS[name]);
   svg.append(path);
   return svg;
+}
+
+/** Tecla o atajo de teclado; `title` describe lo que hace. */
+export function kbd(key: string, title?: string): HTMLElement {
+  return h("kbd", title ? { class: "kbd", title } : { class: "kbd" }, key);
 }
 
 function hue(text: string): number {

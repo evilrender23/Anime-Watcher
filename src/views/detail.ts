@@ -119,7 +119,13 @@ function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (
   const title = h(
     "div",
     { class: "section-head" },
-    h("h2", { class: "section-title" }, "Episodios", h("span", { class: "section-count" }, String(episodes.length))),
+    h(
+      "h2",
+      { class: "section-title" },
+      h("span", { class: "section-icon" }, icon("list")),
+      "Episodios",
+      h("span", { class: "section-count" }, String(episodes.length)),
+    ),
   );
   const section = h("section", { class: "section episodes" }, title);
 
