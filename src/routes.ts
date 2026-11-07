@@ -4,6 +4,7 @@ import { normUrl } from "./data";
 import type { Route } from "./router";
 import { detailView } from "./views/detail";
 import { homeView } from "./views/home";
+import { listView } from "./views/list";
 import { playerView } from "./views/player";
 import { searchView } from "./views/search";
 import { settingsView } from "./views/settings";
@@ -37,4 +38,10 @@ export const settingsRoute = (): Route => ({
   key: "settings",
   section: "settings",
   render: (root, ctx) => settingsView(root, ctx),
+});
+
+export const listRoute = (): Route => ({
+  key: "list",
+  section: "list",
+  render: (root, ctx) => listView(root, ctx),
 });

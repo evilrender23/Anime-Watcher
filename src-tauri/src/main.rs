@@ -41,6 +41,9 @@ fn main() {
             commands::history_list,
             commands::history_mark,
             commands::history_remove,
+            commands::list_all,
+            commands::list_save,
+            commands::list_remove,
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo iniciar Anime Watcher");

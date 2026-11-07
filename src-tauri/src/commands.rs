@@ -11,7 +11,7 @@ use crate::extract::{self, Stream, StreamKind};
 use crate::player::{self, Detected, External};
 use crate::proxy::Proxy;
 use crate::site::{self, AnimeCard, AnimeDetail, EpisodeCard, EpisodeInfo};
-use crate::store::{HistoryEntry, HistoryMark, Settings, Store};
+use crate::store::{HistoryEntry, HistoryMark, ListEntry, ListUpdate, Settings, Store};
 
 pub struct AppState {
     pub http: Client,
@@ -107,4 +107,19 @@ pub fn history_mark(state: State<'_, AppState>, mark: HistoryMark) -> Result<His
 #[tauri::command]
 pub fn history_remove(state: State<'_, AppState>, anime_url: String) -> Result<()> {
     state.store.remove(&anime_url)
+}
+
+#[tauri::command]
+pub fn list_all(state: State<'_, AppState>) -> Vec<ListEntry> {
+    state.store.list()
+}
+
+#[tauri::command]
+pub fn list_save(state: State<'_, AppState>, update: ListUpdate) -> Result<ListEntry> {
+    state.store.list_save(update)
+}
+
+#[tauri::command]
+pub fn list_remove(state: State<'_, AppState>, anime_url: String) -> Result<()> {
+    state.store.list_remove(&anime_url)
 }

@@ -576,6 +576,8 @@ function mountPlayer(
         cover: d?.cover ?? null,
         episode: info.number,
         episodeUrl: url,
+        totalEpisodes: d?.episodes.length || null,
+        airing: !!d?.status && /emisi/i.test(d.status),
       });
     } catch (e) {
       console.warn("No se pudo guardar el historial", e);

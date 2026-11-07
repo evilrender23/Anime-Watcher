@@ -4,7 +4,8 @@ import * as api from "./api";
 import type { HistoryEntry } from "./api";
 import { cachedAnime, sameUrl } from "./data";
 import { router } from "./router";
-import { detailRoute, homeRoute, playerRoute, searchRoute, settingsRoute } from "./routes";
+import { loadList } from "./mylist";
+import { detailRoute, homeRoute, listRoute, playerRoute, searchRoute, settingsRoute } from "./routes";
 import { mountCrumbs } from "./shell";
 import { errMsg, h, icon, poster, toast, type IconName } from "./ui";
 import { mountUpdater } from "./updater";
@@ -68,7 +69,22 @@ const navRow = (label: string, name: IconName, onClick: () => void) =>
   h("button", { class: "side-row", onclick: onClick }, icon(name), h("span", { class: "side-row-label" }, label));
 
 const homeBtn = navRow("Inicio", "home", () => router.navigate(homeRoute()));
+const listBtn = navRow("Mi lista", "bookmark", () => router.navigate(listRoute()));
+const listCount = h("span", { class: "side-row-count" });
+listBtn.append(listCount);
 const settingsBtn = navRow("Ajustes", "settings", () => router.navigate(settingsRoute()));
+
+const refreshListCount = () =>
+  loadList().then(
+    (list) => {
+      const watching = list.filter((e) => e.status === "watching").length;
+      listCount.textContent = list.length ? String(list.length) : "";
+      listCount.title = `${list.length} en tu lista · ${watching} viendo`;
+    },
+    () => {},
+  );
+window.addEventListener(api.LIST_EVENT, () => void refreshListCount());
+void refreshListCount();
 
 // ---- Biblioteca (Continuar viendo) ----
 const libraryList = h("div", { class: "library", role: "list" });
@@ -152,7 +168,7 @@ const sidebar = h(
   { class: "sidebar", attrs: { "aria-label": "Barra lateral" } },
   h("div", { class: "side-top" }, brand),
   searchForm,
-  h("nav", { class: "side-nav", attrs: { "aria-label": "Principal" } }, homeBtn, settingsBtn),
+  h("nav", { class: "side-nav", attrs: { "aria-label": "Principal" } }, homeBtn, listBtn, settingsBtn),
   h(
     "div",
     { class: "side-section" },
@@ -184,6 +200,7 @@ router.onChange((route, canGoBack) => {
   backBtn.disabled = !canGoBack;
   for (const [btn, section] of [
     [homeBtn, "home"],
+    [listBtn, "list"],
     [settingsBtn, "settings"],
   ] as const) {
     const on = route.section === section;

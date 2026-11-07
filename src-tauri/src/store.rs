@@ -1,4 +1,4 @@
-//! Ajustes e historial guardados como JSON en la carpeta de datos de la aplicación
+//! Ajustes, historial y lista personal guardados como JSON en la carpeta de datos de la aplicación
 //! (`%APPDATA%\com.evilrender23.animewatcher` en Windows).
 
 use std::fs;
@@ -78,6 +78,57 @@ pub struct HistoryMark {
     pub cover: Option<String>,
     pub episode: f64,
     pub episode_url: String,
+    /// Episodios publicados del animé, si se conocen (para la lista personal).
+    #[serde(default)]
+    pub total_episodes: Option<u32>,
+    /// En emisión: el total aún puede crecer, así que no se marca como completado.
+    #[serde(default)]
+    pub airing: bool,
+}
+
+/// Estado de un animé en la lista personal (como en MyAnimeList).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListStatus {
+    Watching,
+    Completed,
+    OnHold,
+    Dropped,
+    PlanToWatch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListEntry {
+    pub anime_url: String,
+    pub title: String,
+    pub cover: Option<String>,
+    pub status: ListStatus,
+    /// Nota del 1 al 10; `None` = sin puntuar.
+    pub score: Option<u8>,
+    /// Episodios vistos.
+    pub progress: u32,
+    /// Episodios totales; `None` = desconocido (p. ej. en emisión).
+    pub total: Option<u32>,
+    #[serde(default)]
+    pub notes: String,
+    pub added_at: u64,
+    pub updated_at: u64,
+}
+
+/// Cambios enviados desde la interfaz al añadir o editar una entrada de la lista.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListUpdate {
+    pub anime_url: String,
+    pub title: String,
+    pub cover: Option<String>,
+    pub status: ListStatus,
+    pub score: Option<u8>,
+    pub progress: u32,
+    pub total: Option<u32>,
+    #[serde(default)]
+    pub notes: String,
 }
 
 pub struct Store {
@@ -85,13 +136,16 @@ pub struct Store {
     settings: Mutex<Settings>,
     /// Más reciente primero.
     history: Mutex<Vec<HistoryEntry>>,
+    /// Lista personal, editada más recientemente primero.
+    list: Mutex<Vec<ListEntry>>,
 }
 
 impl Store {
     pub fn open(dir: PathBuf) -> Self {
         let settings = load(&dir.join("settings.json")).unwrap_or_default();
         let history = load(&dir.join("history.json")).unwrap_or_default();
-        Store { dir, settings: Mutex::new(settings), history: Mutex::new(history) }
+        let list = load(&dir.join("list.json")).unwrap_or_default();
+        Store { dir, settings: Mutex::new(settings), history: Mutex::new(history), list: Mutex::new(list) }
     }
 
     pub fn settings(&self) -> Settings {
@@ -114,8 +168,10 @@ impl Store {
         self.history.lock().unwrap().clone()
     }
 
-    /// Marca un episodio como visto y mueve el animé al principio del historial.
+    /// Marca un episodio como visto, mueve el animé al principio del historial y
+    /// actualiza la lista personal (ver [`Store::sync_list`]).
     pub fn mark(&self, mark: HistoryMark) -> Result<HistoryEntry> {
+        self.sync_list(&mark)?;
         let mut history = self.history.lock().unwrap();
         let mut entry = match history.iter().position(|e| e.anime_url == mark.anime_url) {
             Some(i) => history.remove(i),
@@ -150,6 +206,95 @@ impl Store {
         let mut history = self.history.lock().unwrap();
         history.retain(|e| e.anime_url != anime_url);
         save(&self.dir, "history.json", &*history)
+    }
+
+    pub fn list(&self) -> Vec<ListEntry> {
+        self.list.lock().unwrap().clone()
+    }
+
+    /// Añade o edita una entrada de la lista y la mueve al principio.
+    pub fn list_save(&self, update: ListUpdate) -> Result<ListEntry> {
+        let mut list = self.list.lock().unwrap();
+        let now = now_millis();
+        let added_at = match list.iter().position(|e| e.anime_url == update.anime_url) {
+            Some(i) => list.remove(i).added_at,
+            None => now,
+        };
+        let total = update.total.filter(|&t| t > 0);
+        let mut progress = update.progress;
+        if let Some(total) = total {
+            progress = progress.min(total);
+            // Como en MyAnimeList: completado implica todos los episodios vistos.
+            if update.status == ListStatus::Completed {
+                progress = total;
+            }
+        }
+        let entry = ListEntry {
+            anime_url: update.anime_url,
+            title: update.title,
+            cover: update.cover,
+            status: update.status,
+            score: update.score.filter(|s| (1..=10).contains(s)),
+            progress,
+            total,
+            notes: update.notes.trim().to_owned(),
+            added_at,
+            updated_at: now,
+        };
+        list.insert(0, entry.clone());
+        save(&self.dir, "list.json", &*list)?;
+        Ok(entry)
+    }
+
+    pub fn list_remove(&self, anime_url: &str) -> Result<()> {
+        let mut list = self.list.lock().unwrap();
+        list.retain(|e| e.anime_url != anime_url);
+        save(&self.dir, "list.json", &*list)
+    }
+
+    /// Al ver un episodio: añade el animé a la lista como "Viendo" si no estaba, sube el
+    /// progreso, pasa "Planeo ver"/"En espera" a "Viendo" y, si se terminó un animé ya
+    /// finalizado, lo marca como completado.
+    fn sync_list(&self, mark: &HistoryMark) -> Result<()> {
+        let mut list = self.list.lock().unwrap();
+        let now = now_millis();
+        let episode = if mark.episode.is_finite() && mark.episode >= 1.0 { mark.episode.floor() as u32 } else { 0 };
+        let total = mark.total_episodes.filter(|&t| t > 0);
+        let mut entry = match list.iter().position(|e| e.anime_url == mark.anime_url) {
+            Some(i) => list.remove(i),
+            None => ListEntry {
+                anime_url: mark.anime_url.clone(),
+                title: mark.title.clone(),
+                cover: None,
+                status: ListStatus::Watching,
+                score: None,
+                progress: 0,
+                total: None,
+                notes: String::new(),
+                added_at: now,
+                updated_at: now,
+            },
+        };
+        entry.title = mark.title.clone();
+        if mark.cover.is_some() {
+            entry.cover = mark.cover.clone();
+        }
+        if !mark.airing && total.is_some() {
+            entry.total = total;
+        }
+        entry.progress = entry.progress.max(episode);
+        if let Some(total) = entry.total {
+            entry.progress = entry.progress.min(total);
+        }
+        if matches!(entry.status, ListStatus::PlanToWatch | ListStatus::OnHold) {
+            entry.status = ListStatus::Watching;
+        }
+        if entry.status == ListStatus::Watching && !mark.airing && entry.total.is_some_and(|t| entry.progress >= t) {
+            entry.status = ListStatus::Completed;
+        }
+        entry.updated_at = now;
+        list.insert(0, entry);
+        save(&self.dir, "list.json", &*list)
     }
 }
 
@@ -192,7 +337,68 @@ mod tests {
             cover: None,
             episode,
             episode_url: format!("{anime}-episodio-{episode}"),
+            total_episodes: None,
+            airing: false,
         }
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("anime-watcher-{tag}-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn watching_adds_to_list_and_completes_finished_anime() {
+        let dir = temp_dir("list");
+        let store = Store::open(dir.clone());
+        store.mark(HistoryMark { total_episodes: Some(3), ..mark("a", 1.0) }).unwrap();
+        let entry = &store.list()[0];
+        assert_eq!((entry.status, entry.progress, entry.total), (ListStatus::Watching, 1, Some(3)));
+
+        store.mark(HistoryMark { total_episodes: Some(3), ..mark("a", 3.0) }).unwrap();
+        // Volver a un episodio anterior no baja el progreso.
+        store.mark(HistoryMark { total_episodes: Some(3), ..mark("a", 2.0) }).unwrap();
+        let entry = &Store::open(dir.clone()).list()[0];
+        assert_eq!((entry.status, entry.progress), (ListStatus::Completed, 3));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn airing_anime_is_never_auto_completed() {
+        let dir = temp_dir("airing");
+        let store = Store::open(dir.clone());
+        store.mark(HistoryMark { total_episodes: Some(5), airing: true, ..mark("a", 5.0) }).unwrap();
+        let entry = &store.list()[0];
+        assert_eq!((entry.status, entry.progress, entry.total), (ListStatus::Watching, 5, None));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn list_save_validates_and_keeps_added_at() {
+        let dir = temp_dir("save");
+        let store = Store::open(dir.clone());
+        let update = |status, score, progress| ListUpdate {
+            anime_url: "a".into(),
+            title: "A".into(),
+            cover: None,
+            status,
+            score,
+            progress,
+            total: Some(12),
+            notes: "  nota  ".into(),
+        };
+        let first = store.list_save(update(ListStatus::PlanToWatch, Some(11), 40)).unwrap();
+        assert_eq!((first.score, first.progress, first.notes.as_str()), (None, 12, "nota"));
+        let done = store.list_save(update(ListStatus::Completed, Some(9), 2)).unwrap();
+        assert_eq!((done.score, done.progress, done.added_at), (Some(9), 12, first.added_at));
+
+        // Planeo ver → Viendo al reproducir un episodio.
+        store.list_save(update(ListStatus::PlanToWatch, None, 0)).unwrap();
+        store.mark(mark("a", 1.0)).unwrap();
+        assert_eq!(store.list()[0].status, ListStatus::Watching);
+
+        store.list_remove("a").unwrap();
+        assert!(Store::open(dir.clone()).list().is_empty());
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

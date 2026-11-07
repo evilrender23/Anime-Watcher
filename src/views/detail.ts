@@ -4,6 +4,7 @@ import { getAnime, sameUrl } from "../data";
 import { router, type ViewContext } from "../router";
 import { homeRoute, playerRoute } from "../routes";
 import { setCrumbs } from "../shell";
+import { listPanel } from "../mylist";
 import { empty, fact, h, icon, loadInto, poster, skeleton, toast } from "../ui";
 
 /** Orden de la lista de episodios; se conserva entre fichas durante la sesión. */
@@ -72,11 +73,15 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
     "aside",
     { class: "detail-aside" },
     poster(detail.cover, detail.title, "ratio-poster detail-cover"),
+    listPanel(
+      { animeUrl: detail.url, title: detail.title, cover: detail.cover, total: live ? null : episodes.length || null },
+      entry ? Math.max(0, ...entry.watched.map((n) => Math.floor(n))) : 0,
+    ),
     h(
       "dl",
       { class: "spec" },
       status
-        ? fact("Estado", h("span", { class: live ? "status status-live" : "status" }, live ? h("i", { class: "live-dot" }) : null, status))
+        ? fact("Emisión", h("span", { class: live ? "status status-live" : "status" }, live ? h("i", { class: "live-dot" }) : null, status))
         : null,
       fact("Episodios", String(episodes.length)),
       entry ? fact("Vistos", `${watchedCount} / ${episodes.length}`) : null,

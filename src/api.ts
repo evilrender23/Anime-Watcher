@@ -108,7 +108,33 @@ export interface HistoryMark {
   cover: string | null;
   episode: number;
   episodeUrl: string;
+  /** Episodios publicados, si se conocen (para la lista personal). */
+  totalEpisodes?: number | null;
+  /** En emisión: no se marca como completado automáticamente. */
+  airing?: boolean;
 }
+
+/** Estado en la lista personal, como en MyAnimeList. */
+export type ListStatus = "watching" | "completed" | "on_hold" | "dropped" | "plan_to_watch";
+
+export interface ListEntry {
+  animeUrl: string;
+  title: string;
+  cover: string | null;
+  status: ListStatus;
+  /** 1–10, null = sin puntuar. */
+  score: number | null;
+  /** Episodios vistos. */
+  progress: number;
+  /** Episodios totales; null = desconocido (en emisión). */
+  total: number | null;
+  notes: string;
+  /** Milisegundos desde UNIX_EPOCH. */
+  addedAt: number;
+  updatedAt: number;
+}
+
+export type ListUpdate = Omit<ListEntry, "addedAt" | "updatedAt">;
 
 export const latest = () => invoke<EpisodeCard[]>("latest");
 export const search = (query: string) => invoke<AnimeCard[]>("search", { query });
@@ -127,14 +153,30 @@ export const detectPlayers = () => invoke<DetectedPlayers>("detect_players");
 /** Se emite en `window` cada vez que cambia el historial (la barra lateral lo escucha). */
 export const HISTORY_EVENT = "aw:history-changed";
 const historyChanged = () => window.dispatchEvent(new Event(HISTORY_EVENT));
+/** Se emite en `window` cada vez que cambia la lista personal. */
+export const LIST_EVENT = "aw:list-changed";
+const listChanged = () => window.dispatchEvent(new Event(LIST_EVENT));
 
 export const historyList = () => invoke<HistoryEntry[]>("history_list");
 export const historyMark = async (mark: HistoryMark) => {
   const entry = await invoke<HistoryEntry>("history_mark", { mark });
   historyChanged();
+  // El backend también actualiza la lista personal al marcar un episodio.
+  listChanged();
   return entry;
 };
 export const historyRemove = async (animeUrl: string) => {
   await invoke<void>("history_remove", { animeUrl });
   historyChanged();
+};
+
+export const listAll = () => invoke<ListEntry[]>("list_all");
+export const listSave = async (update: ListUpdate) => {
+  const entry = await invoke<ListEntry>("list_save", { update });
+  listChanged();
+  return entry;
+};
+export const listRemove = async (animeUrl: string) => {
+  await invoke<void>("list_remove", { animeUrl });
+  listChanged();
 };

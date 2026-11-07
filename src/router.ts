@@ -11,7 +11,7 @@ export interface ViewContext {
   signal: AbortSignal;
 }
 
-export type Section = "home" | "search" | "detail" | "player" | "settings";
+export type Section = "home" | "search" | "detail" | "player" | "settings" | "list";
 
 export interface Route {
   /** Identifica la vista y sus parámetros (p. ej. `detail:<url>`). */

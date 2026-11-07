@@ -70,6 +70,10 @@ const ICONS = {
   folder: "M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
   skip: "M5.5 6.5v11l8.5-5.5z M18 6v12",
   download: "M12 4v11 M7.5 10.5L12 15l4.5-4.5 M5 20h14",
+  plus: "M12 5v14 M5 12h14",
+  bookmark: "M6.5 4h11a.5.5 0 0 1 .5.5V20l-6-4-6 4V4.5a.5.5 0 0 1 .5-.5z",
+  star: "M12 3.8l2.5 5.1 5.6.8-4.05 3.95.96 5.6L12 16.6l-5.01 2.65.96-5.6L3.9 9.7l5.6-.8z",
+  trash: "M4 7h16 M9 7V4.5h6V7 M6.5 7l1 13h9l1-13",
 } as const;
 
 export type IconName = keyof typeof ICONS;
