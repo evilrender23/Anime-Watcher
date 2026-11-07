@@ -2,7 +2,9 @@
 // instalar.ps1 sabe de qué commit de `main` salió; el backend hace `git fetch`, relanza el
 // instalador para compilar la versión nueva en segundo plano y avisa con el evento
 // "actualizacion". Al cerrar la app, el instalador cambia a la versión nueva y la reabre.
+// Las copias descargadas de GitHub Releases sólo avisan del release nuevo y abren su página.
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
 import { errMsg, h, icon, toast } from "./ui";
 
@@ -25,6 +27,7 @@ export type UpdateState =
   | { estado: "nueva"; ultimo: Commit }
   | { estado: "compilando"; paso: number; total: number; texto: string }
   | { estado: "lista"; commit: string }
+  | { estado: "release"; version: string; url: string; titulo: string | null }
   | { estado: "error"; mensaje: string };
 
 type Listener = (state: UpdateState) => void;
@@ -39,6 +42,13 @@ export const short = (commit: string) => commit.slice(0, 7);
 
 /** Versión instalada; null en una compilación de desarrollo. */
 export const installedVersion = () => invoke<InstalledVersion | null>("update_info");
+
+/** Instalador (se actualiza sola), release (avisa de releases nuevos) o desarrollo. */
+export type UpdateChannel = "instalador" | "release" | "desarrollo";
+export const updateChannel = () => invoke<UpdateChannel>("update_channel");
+
+/** Abre la página del release nuevo para descargarlo. */
+export const openRelease = (url: string) => openUrl(url).catch((e: unknown) => toast(errMsg(e), "error"));
 
 /** Busca (y, si `install`, compila) la versión nueva. El resultado llega por onUpdate. */
 export const checkForUpdates = (install: boolean) => invoke<void>("update_check", { install });
@@ -83,6 +93,8 @@ export function describe(state: UpdateState): string {
       return state.total ? `Compilando la versión nueva · paso ${state.paso} de ${state.total}: ${state.texto}` : "Preparando la versión nueva…";
     case "lista":
       return `La versión ${state.commit} está lista. Se instala al reiniciar la app.`;
+    case "release":
+      return `Hay una versión nueva: ${state.version}. Descárgala desde GitHub.`;
     case "error":
       return state.mensaje;
     default:
@@ -105,6 +117,25 @@ function renderCard(): void {
         h("strong", { class: "update-title" }, "Actualizando"),
         h("span", { class: "update-desc" }, state.texto || "Preparando…"),
         h("span", { class: "meter" }, h("i", { style: `--p:${fraction}` })),
+      ),
+    );
+    host.hidden = false;
+    return;
+  }
+  if (state.estado === "release" && !dismissed) {
+    host.replaceChildren(
+      h("span", { class: "update-icon" }, icon("sparkle")),
+      h(
+        "div",
+        { class: "update-text" },
+        h("strong", { class: "update-title" }, `Versión ${state.version} disponible`),
+        h("span", { class: "update-desc" }, "Descarga el instalador nuevo. Tu lista, historial y ajustes se conservan."),
+      ),
+      h(
+        "div",
+        { class: "update-actions" },
+        h("button", { class: "btn btn-primary btn-sm", onclick: () => void openRelease(state.url) }, icon("download"), "Descargar"),
+        h("button", { class: "btn btn-ghost btn-sm", onclick: () => { dismissed = true; host.hidden = true; } }, "Más tarde"),
       ),
     );
     host.hidden = false;

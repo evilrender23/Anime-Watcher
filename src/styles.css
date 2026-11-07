@@ -2849,3 +2849,10 @@ kbd {
     transition-duration: 0.01ms !important;
   }
 }
+
+.set-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  align-items: center;
+}

@@ -13,6 +13,9 @@
 //!   --relanzar` en su propio grupo de procesos. Compila en `app.nuevo`, escribe `LISTO <commit>`
 //!   en `registro/actualizacion.log` y espera a que la app se cierre para cambiar las carpetas y
 //!   volver a abrirla. Aquí se sigue ese registro para mostrar el progreso.
+//! - Las copias de GitHub Releases (compiladas por `.github/workflows/release.yml` con
+//!   `ANIME_WATCHER_RELEASE=1`) no tienen clon ni instalador: consultan el último release y, si
+//!   es más nuevo, avisan y abren su página para descargarlo.
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -26,6 +29,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 const RAMA: &str = "main";
+/// Repositorio del que salen los releases.
+const REPO_RELEASES: &str = "evilrender23/Anime-Watcher";
 const INSTALADOR: &str = if cfg!(windows) { "instalar.ps1" } else { "instalar.sh" };
 const LIMITE_GIT: Duration = Duration::from_secs(45);
 const PRIMERA_COMPROBACION: Duration = Duration::from_secs(60);
@@ -71,7 +76,72 @@ pub enum Estado {
     Nueva { ultimo: Commit },
     Compilando { paso: u32, total: u32, texto: String },
     Lista { commit: String },
+    /// Copia de GitHub Releases: hay un release más nuevo para descargar.
+    Release { version: String, url: String, titulo: Option<String> },
     Error { mensaje: String },
+}
+
+/// De dónde salió esta copia y, por tanto, cómo se actualiza.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Canal {
+    /// `instalar.sh` / `instalar.ps1`: compila `main` y se actualiza sola.
+    Instalador,
+    /// GitHub Releases: avisa de releases nuevos.
+    Release,
+    /// `tauri dev` o una compilación local: no se actualiza.
+    Desarrollo,
+}
+
+pub fn canal() -> Canal {
+    if version_instalada().is_some() {
+        Canal::Instalador
+    } else if option_env!("ANIME_WATCHER_RELEASE").is_some() {
+        Canal::Release
+    } else {
+        Canal::Desarrollo
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct UltimoRelease {
+    tag_name: String,
+    html_url: String,
+    name: Option<String>,
+}
+
+/// "v1.2.3" → [1, 2, 3] (lo que no sea número cuenta como 0).
+fn numeros_version(v: &str) -> Vec<u64> {
+    v.trim().trim_start_matches(['v', 'V']).split(['.', '-', '+']).take(3).map(|p| p.parse().unwrap_or(0)).collect()
+}
+
+fn es_mas_nueva(otra: &str, actual: &str) -> bool {
+    numeros_version(otra) > numeros_version(actual)
+}
+
+/// Último release publicado, si es más nuevo que esta copia. `Ok(None)`: al día.
+fn buscar_release() -> Result<Option<UltimoRelease>, String> {
+    tauri::async_runtime::block_on(async {
+        let cliente = reqwest::Client::builder()
+            .user_agent(concat!("Anime-Watcher/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let respuesta = cliente
+            .get(format!("https://api.github.com/repos/{REPO_RELEASES}/releases/latest"))
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|_| "Sin conexión con GitHub: revisa tu conexión.".to_string())?;
+        if respuesta.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !respuesta.status().is_success() {
+            return Err(format!("GitHub respondió {} al buscar actualizaciones.", respuesta.status()));
+        }
+        let ultimo: UltimoRelease = respuesta.json().await.map_err(|e| format!("Respuesta de GitHub inesperada: {e}"))?;
+        Ok(es_mas_nueva(&ultimo.tag_name, env!("CARGO_PKG_VERSION")).then_some(ultimo))
+    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -284,7 +354,7 @@ impl Actualizador {
     /// actualizaciones automáticas están activas, la compila en segundo plano.
     pub fn vigilar(&self, app: AppHandle, automatico: impl Fn() -> bool + Send + 'static) {
         *self.app.lock().unwrap() = Some(app);
-        if version_instalada().is_none() {
+        if canal() == Canal::Desarrollo {
             return;
         }
         let a = self.clone();
@@ -311,6 +381,13 @@ impl Actualizador {
 
     fn buscar_e_instalar(&self, instalar: bool) {
         self.poner(Estado::Buscando);
+        if canal() == Canal::Release {
+            return self.poner(match buscar_release() {
+                Err(mensaje) => Estado::Error { mensaje },
+                Ok(None) => Estado::AlDia,
+                Ok(Some(r)) => Estado::Release { version: r.tag_name, url: r.html_url, titulo: r.name },
+            });
+        }
         match buscar() {
             Err(mensaje) => self.poner(Estado::Error { mensaje }),
             Ok(None) => self.poner(Estado::AlDia),
@@ -424,6 +501,10 @@ mod tests {
         assert_eq!(v.commit, "1e648a248962");
         assert_eq!(interpretar_version("{ \"commit\": \"abcdef12\" }").unwrap().rama, "main");
         assert!(interpretar_version("{}").is_none());
+        assert!(es_mas_nueva("v1.0.10", "1.0.9"));
+        assert!(es_mas_nueva("v2.0.0", "1.9.9"));
+        assert!(!es_mas_nueva("v1.0.3", "1.0.3"));
+        assert!(!es_mas_nueva("v1.0.2", "1.0.3"));
         let d = interpretar_version("{ \"commit\": \"abcdef12\", \"destino\": \"/x/AnimeWatcher\" }").unwrap();
         assert_eq!(d.destino.as_deref(), Some(Path::new("/x/AnimeWatcher")));
         assert!(mismo_commit("1e648a2", "1E648A248962af"));
@@ -432,6 +513,15 @@ mod tests {
         let c = interpretar_log("abc123456\0Arregla el zoom\02026-11-05T10:00:00+01:00\n").unwrap();
         assert_eq!(c.mensaje.as_deref(), Some("Arregla el zoom"));
         assert_eq!(c.fecha.as_deref(), Some("2026-11-05T10:00:00+01:00"));
+    }
+
+    /// Consulta real a GitHub: `cargo test -- --ignored release_real`.
+    #[test]
+    #[ignore]
+    fn release_real() {
+        let r = buscar_release();
+        println!("{:?}", r.as_ref().map(|o| o.as_ref().map(|u| (&u.tag_name, &u.html_url))));
+        assert!(r.is_ok());
     }
 
     #[test]

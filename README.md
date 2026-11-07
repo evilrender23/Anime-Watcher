@@ -48,6 +48,10 @@ También desde un clon: `bash Anime-Watcher/instalar.sh` o `powershell -Executio
 
 Opciones: `--repo`, `--rama`, `--destino` y `--bin` (en Windows `-Repo`, `-Rama` y `-Destino`). La primera compilación tarda unos minutos; las siguientes aprovechan la caché.
 
+### Sin compilar: instaladores de Releases
+
+En [Releases](https://github.com/evilrender23/Anime-Watcher/releases/latest) están los instaladores ya compilados para **Windows** (`.exe` / `.msi`) y **macOS** (`.dmg` para Apple Silicon e Intel). No están firmados: en Mac, ábrela la primera vez con clic derecho → **Abrir**; en Windows, si sale SmartScreen, **Más información → Ejecutar de todas formas**. Estas copias no se compilan solas: avisan cuando hay un release nuevo y abren su página para descargarlo.
+
 ¿Venías de **anicli-es**? Al abrir Anime Watcher por primera vez se copian tu historial y tus ajustes. Después puedes desinstalar anicli-es.
 
 Si quieres usar un reproductor externo:
@@ -57,11 +61,13 @@ Si quieres usar un reproductor externo:
 
 ## Actualizaciones automáticas
 
-No hay releases: cada equipo compila la rama `main`. La app instalada guarda en `version.json` el commit del que salió (en Mac, dentro de `Anime Watcher.app/Contents/Resources`). Un minuto después de abrirse y cada 6 horas hace `git fetch` en `codigo/` y, si hay commits nuevos, relanza el instalador en segundo plano (`--actualizar`). Este compila la versión nueva aparte mientras sigues usando la app, que muestra el progreso en la barra lateral. Cuando termina, aparece **Reiniciar y actualizar**: la app se cierra, el instalador la cambia por la versión nueva y la vuelve a abrir. Si la cierras sin más, el cambio se aplica igual y la próxima vez que la abras ya es la nueva.
+Instalada con el comando, cada equipo compila la rama `main`. La app instalada guarda en `version.json` el commit del que salió (en Mac, dentro de `Anime Watcher.app/Contents/Resources`). Un minuto después de abrirse y cada 6 horas hace `git fetch` en `codigo/` y, si hay commits nuevos, relanza el instalador en segundo plano (`--actualizar`). Este compila la versión nueva aparte mientras sigues usando la app, que muestra el progreso en la barra lateral. Cuando termina, aparece **Reiniciar y actualizar**: la app se cierra, el instalador la cambia por la versión nueva y la vuelve a abrir. Si la cierras sin más, el cambio se aplica igual y la próxima vez que la abras ya es la nueva.
 
 En **Ajustes → Actualizaciones** ves el commit instalado, puedes buscar a mano y desactivar las actualizaciones automáticas. El progreso queda en `registro/actualizacion.log` y la salida de git, npm y cargo en `registro/compilacion.log`. Tu lista, historial y ajustes se guardan aparte y no se tocan.
 
 Publicar una versión es solo hacer push a `main`. Volver a ejecutar el comando de instalación también actualiza.
+
+Para publicar un release con instaladores: sube la versión en `package.json`, `src-tauri/Cargo.toml` y `src-tauri/tauri.conf.json`, haz commit y sube una etiqueta igual (`git tag v1.0.3 && git push origin v1.0.3`). El workflow `.github/workflows/release.yml` compila Windows y macOS (Apple Silicon e Intel) y publica el release.
 
 ## Compilar instaladores
 

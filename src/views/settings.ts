@@ -5,7 +5,7 @@ import type { DetectedPlayers, PlayerKind, Settings } from "../api";
 import type { ViewContext } from "../router";
 import { setCrumbs } from "../shell";
 import { errMsg, h, icon, loadInto, skeleton, toast } from "../ui";
-import { checkForUpdates, describe, installedVersion, onUpdate, short, updateState, type UpdateState } from "../updater";
+import { checkForUpdates, describe, installedVersion, onUpdate, openRelease, short, updateChannel, updateState, type UpdateState } from "../updater";
 
 const MPV_URL = "https://mpv.io/installation/";
 const VLC_URL = "https://www.videolan.org/vlc/";
@@ -212,8 +212,11 @@ function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLEl
     "Buscar",
   );
 
+  const downloadBtn: HTMLButtonElement = h("button", { class: "btn btn-sm btn-primary", hidden: true }, icon("download"), "Descargar");
   const show = (state: UpdateState) => {
     if (signal.aborted) return;
+    downloadBtn.hidden = state.estado !== "release";
+    if (state.estado === "release") downloadBtn.onclick = () => void openRelease(state.url);
     status.className = state.estado === "error" ? "set-status set-status-error" : "set-status";
     status.textContent = describe(state);
     const busy = state.estado === "buscando" || state.estado === "compilando";
@@ -224,9 +227,15 @@ function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLEl
     }
   };
 
-  installedVersion().then(
-    (info) => {
+  Promise.all([installedVersion(), updateChannel()]).then(
+    ([info, channel]) => {
       if (signal.aborted) return;
+      if (channel === "release") {
+        branch.textContent = "Descargada de GitHub Releases: avisa cuando hay una versión nueva.";
+        autoUpdate.disabled = true;
+        show(updateState());
+        return;
+      }
       if (!info) {
         branch.textContent = "Compilación de desarrollo: no se actualiza sola.";
         checkBtn.disabled = true;
@@ -246,12 +255,12 @@ function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLEl
 
   return group(
     "Actualizaciones",
-    "La app se compila desde la rama main de GitHub. Busca cambios al abrirse y cada 6 horas, compila la versión nueva en segundo plano y la instala al reiniciar.",
+    "Instalada con el comando de instalación, se compila desde la rama main y se actualiza sola al reiniciar. Descargada de GitHub Releases, avisa de cada versión nueva. Busca al abrirse y cada 6 horas.",
     h(
       "div",
       { class: "set-row" },
       h("div", { class: "set-text" }, h("span", { class: "set-label" }, "Versión instalada ", version), branch),
-      checkBtn,
+      h("div", { class: "set-actions" }, downloadBtn, checkBtn),
     ),
     h(
       "label",

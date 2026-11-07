@@ -48,6 +48,7 @@ fn main() {
             commands::list_remove,
             commands::update_info,
             commands::update_state,
+            commands::update_channel,
             commands::update_check,
             commands::update_apply,
         ])

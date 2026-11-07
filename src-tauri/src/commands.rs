@@ -12,7 +12,7 @@ use crate::player::{self, Detected, External};
 use crate::proxy::Proxy;
 use crate::site::{self, AnimeCard, AnimeDetail, EpisodeCard, EpisodeInfo};
 use crate::store::{HistoryEntry, HistoryMark, ListEntry, ListUpdate, Settings, Store};
-use crate::update::{self, Actualizador, Estado, VersionInstalada};
+use crate::update::{self, Actualizador, Canal, Estado, VersionInstalada};
 
 pub struct AppState {
     pub http: Client,
@@ -130,6 +130,12 @@ pub fn list_remove(state: State<'_, AppState>, anime_url: String) -> Result<()> 
 #[tauri::command]
 pub fn update_info() -> Option<VersionInstalada> {
     update::version_instalada()
+}
+
+/// Instalador (se actualiza sola), release (avisa de releases nuevos) o desarrollo.
+#[tauri::command]
+pub fn update_channel() -> Canal {
+    update::canal()
 }
 
 #[tauri::command]
