@@ -94,7 +94,21 @@ ULTIMA="$REGISTRO/ultima-salida.log"
 CERROJO="$REGISTRO/instalar.lock"
 # La app lo deja si se cierra sin aplicar la actualización: se cambia de versión, pero no se abre.
 NO_RELANZAR="$REGISTRO/no-relanzar"
+# Carpetas de git, node, npm, cargo y rustc encontradas al instalar desde la terminal. Lanzado
+# desde la app (abierta desde el Dock, el Finder o el menú) el PATH es el mínimo del sistema y no
+# trae lo que añade la configuración de la terminal (nvm, ~/.cargo/bin, ~/.local/node/bin…).
+RUTAS="$REGISTRO/rutas"
 TOTAL=7
+
+cargar_rutas() {
+    local d
+    [ -f "$RUTAS" ] || return 0
+    while IFS= read -r d; do
+        [ -n "$d" ] && [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
+    done < "$RUTAS"
+    export PATH
+}
+cargar_rutas
 
 anotar() { printf '%s\n' "$1" >> "$ESTADO"; }
 paso() {
@@ -110,6 +124,14 @@ fallar() {
     exit 1
 }
 tiene() { command -v "$1" >/dev/null 2>&1; }
+
+guardar_rutas() {
+    local p ruta
+    for p in git node npm cargo rustc; do
+        ruta=$(command -v "$p" 2>/dev/null) || continue
+        case "$ruta" in /*) dirname "$ruta" ;; esac
+    done | awk '!visto[$0]++' > "$RUTAS.nuevo" && mv "$RUTAS.nuevo" "$RUTAS"
+}
 
 # ejecutar CARPETA PROGRAMA ARGUMENTOS…: la salida va a compilacion.log (y a la pantalla, atenuada).
 ejecutar() {
@@ -210,7 +232,7 @@ comprobar_requisitos() {
         hay "$r" || { faltan="$faltan $r"; nombres="$nombres${nombres:+, }$(nombre_de "$r")"; }
     done
     [ -z "$faltan" ] && return 0
-    $INTERACTIVO || fallar "Falta $nombres. Ejecuta instalar.sh en una terminal para instalarlo."
+    $INTERACTIVO || fallar "Falta $nombres (o no está en el PATH de la app). Vuelve a ejecutar el comando de instalación en una terminal."
     printf '\033[33mFalta: %s\033[0m\n' "$nombres"
     # Con `curl | bash` la entrada es el propio script: se pregunta en la terminal.
     printf '¿Instalarlo? [T]odo / [u]no a uno / [n]ada '
@@ -378,6 +400,7 @@ principal() {
     if $LINUX; then paso 1 'Comprobando el compilador de C, Git, WebKitGTK, Rust y Node.js'
     else paso 1 'Comprobando las herramientas de Xcode, Git, Rust y Node.js'; fi
     comprobar_requisitos
+    guardar_rutas
 
     paso 2 "Descargando el código ($RAMA)"
     descargar_codigo
