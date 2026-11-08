@@ -24,10 +24,12 @@ impl From<reqwest::Error> for Error {
             .and_then(|u| u.host_str())
             .unwrap_or("el servidor")
             .to_owned();
+        // Si ni las IPs alternativas conectan, casi siempre es un bloqueo de la operadora.
+        const BLOQUEO: &str = "Puede que tu operadora lo esté bloqueando (en España pasa durante el fútbol): prueba más tarde o con una VPN.";
         let text = if err.is_timeout() {
-            format!("Tiempo de espera agotado al conectar con {host}.")
+            format!("Tiempo de espera agotado al conectar con {host}. {BLOQUEO}")
         } else if err.is_connect() {
-            format!("No se pudo conectar con {host}.")
+            format!("No se pudo conectar con {host}. {BLOQUEO}")
         } else if let Some(status) = err.status() {
             format!("{host} respondió con el código {}.", status.as_u16())
         } else if err.is_decode() || err.is_body() {
