@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
+      release_id: ${{ steps.release.outputs.id }}
     steps:
       - uses: actions/checkout@v4
       - id: meta
@@ -37,6 +38,33 @@ jobs:
             echo "::error::La etiqueta $GITHUB_REF_NAME no coincide con la versión de tauri.conf.json (v$version)."
             exit 1
           fi
+
+      - name: Crear el release (o reutilizar el que ya exista)
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Anime Watcher $TAG" --notes-file - <<'EOF'
+          ## Descargas
+
+          | Sistema | Archivo |
+          |---|---|
+          | **Windows** | `Anime.Watcher_*_x64-setup.exe` (o el `.msi`) |
+          | **Mac con Apple Silicon** (M1 o posterior) | `Anime.Watcher_*_aarch64.dmg` |
+          | **Mac con Intel** | `Anime.Watcher_*_x64.dmg` |
+
+          Los instaladores no están firmados:
+          - **Mac:** arrastra la app a Aplicaciones y ábrela la primera vez con clic derecho → **Abrir**.
+          - **Windows:** si aparece SmartScreen, pulsa **Más información → Ejecutar de todas formas**.
+
+          Esta copia avisa cuando hay un release nuevo. Si prefieres que se compile y actualice sola
+          desde `main`, instálala con el comando del [README](https://github.com/evilrender23/Anime-Watcher#instalación).
+          EOF
+          fi
+          echo "id=$(gh release view "$TAG" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.name }}
@@ -80,24 +108,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ needs.version.outputs.tag }}
-          releaseName: Anime Watcher ${{ needs.version.outputs.tag }}
-          releaseBody: |
-            ## Descargas
-
-            | Sistema | Archivo |
-            |---|---|
-            | **Windows** | `Anime.Watcher_*_x64-setup.exe` (o el `.msi`) |
-            | **Mac con Apple Silicon** (M1 o posterior) | `Anime.Watcher_*_aarch64.dmg` |
-            | **Mac con Intel** | `Anime.Watcher_*_x64.dmg` |
-
-            Los instaladores no están firmados:
-            - **Mac:** arrastra la app a Aplicaciones y ábrela la primera vez con clic derecho → **Abrir**.
-            - **Windows:** si aparece SmartScreen, pulsa **Más información → Ejecutar de todas formas**.
-
-            Esta copia avisa cuando hay un release nuevo. Si prefieres que se compile y actualice sola
-            desde `main`, instálala con el comando del [README](https://github.com/${{ github.repository }}#instalación).
-          releaseDraft: false
-          prerelease: false
+          # El release ya existe (lo crea el trabajo "version"): así los tres trabajos no
+          # intentan crearlo a la vez.
+          releaseId: ${{ needs.version.outputs.release_id }}
           includeUpdaterJson: false
           args: ${{ matrix.args }}
