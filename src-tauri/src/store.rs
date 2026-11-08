@@ -70,7 +70,18 @@ pub struct HistoryEntry {
     pub last_episode_url: String,
     pub watched: Vec<f64>,
     pub updated_at: u64,
+    /// Por dónde iba `last_episode_url` (segundos; 0 = desde el principio o terminado).
+    #[serde(default)]
+    pub position: f64,
+    /// Duración de ese episodio, si se conoce (segundos).
+    #[serde(default)]
+    pub duration: f64,
 }
+
+/// Lo que falta para el final por debajo de lo cual el episodio cuenta como terminado.
+const FINAL_SEGUNDOS: f64 = 90.0;
+/// Menos que esto no merece la pena retomarlo.
+const MINIMO_SEGUNDOS: f64 = 15.0;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,8 +196,15 @@ impl Store {
                 last_episode_url: String::new(),
                 watched: Vec::new(),
                 updated_at: 0,
+                position: 0.0,
+                duration: 0.0,
             },
         };
+        // Otro episodio: su minuto empieza de cero.
+        if entry.last_episode_url != mark.episode_url {
+            entry.position = 0.0;
+            entry.duration = 0.0;
+        }
         entry.title = mark.title;
         if mark.cover.is_some() {
             entry.cover = mark.cover;
@@ -202,6 +220,25 @@ impl Store {
         history.truncate(MAX_HISTORY);
         save(&self.dir, "history.json", &*history)?;
         Ok(entry)
+    }
+
+    /// Guarda por dónde va el episodio que se está viendo (sólo si es el último marcado de ese
+    /// animé). Cerca del final cuenta como terminado y se guarda 0. Devuelve si cambió algo.
+    pub fn save_position(&self, anime_url: &str, episode_url: &str, position: f64, duration: f64) -> Result<bool> {
+        let mut history = self.history.lock().unwrap();
+        let Some(entry) = history.iter_mut().find(|e| e.anime_url == anime_url && e.last_episode_url == episode_url) else {
+            return Ok(false);
+        };
+        let duration = if duration.is_finite() && duration > 0.0 { duration } else { entry.duration };
+        let terminado = duration > 0.0 && position >= duration - FINAL_SEGUNDOS;
+        let position = if !position.is_finite() || position < MINIMO_SEGUNDOS || terminado { 0.0 } else { position.floor() };
+        if entry.position == position && entry.duration == duration {
+            return Ok(false);
+        }
+        entry.position = position;
+        entry.duration = duration;
+        save(&self.dir, "history.json", &*history)?;
+        Ok(true)
     }
 
     pub fn remove(&self, anime_url: &str) -> Result<()> {
@@ -401,6 +438,26 @@ mod tests {
         store.list_remove("a").unwrap();
         assert!(Store::open(dir.clone()).list().is_empty());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn guarda_y_reinicia_el_minuto() {
+        let dir = temp_dir("minuto");
+        let store = Store::open(dir.clone());
+        store.mark(mark("a", 1.0)).unwrap();
+        let ep1 = store.history()[0].last_episode_url.clone();
+        assert!(store.save_position("a", &ep1, 754.6, 1440.0).unwrap());
+        assert_eq!(store.history()[0].position, 754.0);
+        // Otro episodio que no es el último marcado: no se toca.
+        assert!(!store.save_position("a", "otro", 100.0, 1440.0).unwrap());
+        // Cerca del final cuenta como terminado.
+        store.save_position("a", &ep1, 1400.0, 1440.0).unwrap();
+        assert_eq!(store.history()[0].position, 0.0);
+        store.save_position("a", &ep1, 300.0, 0.0).unwrap();
+        assert_eq!(Store::open(dir).history()[0].position, 300.0, "se guarda en disco");
+        // Al pasar al episodio siguiente vuelve a cero.
+        store.mark(mark("a", 2.0)).unwrap();
+        assert_eq!(store.history()[0].position, 0.0);
     }
 
     #[test]

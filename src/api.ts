@@ -1,6 +1,7 @@
 // Contrato entre la interfaz y el backend en Rust (src-tauri/src/commands.rs).
 // Todos los comandos rechazan la promesa con un mensaje de error en español (string).
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 /** Episodio reciente mostrado en la portada del sitio. */
 export interface EpisodeCard {
@@ -102,6 +103,10 @@ export interface HistoryEntry {
   watched: number[];
   /** Milisegundos desde UNIX_EPOCH. */
   updatedAt: number;
+  /** Segundo por el que iba `lastEpisodeUrl` (0 = desde el principio o terminado). */
+  position: number;
+  /** Duración de ese episodio en segundos, si se conoce. */
+  duration: number;
 }
 
 export interface HistoryMark {
@@ -144,9 +149,35 @@ export const anime = (url: string) => invoke<AnimeDetail>("anime", { url });
 export const episode = (url: string) => invoke<EpisodeInfo>("episode", { url });
 export const resolve = (server: Server) =>
   invoke<ResolvedStream>("resolve", { name: server.name, url: server.url });
+/** Episodio abierto fuera: desde dónde empezar y de qué animé/episodio guardar el minuto. */
+export interface ExternalTracking {
+  animeUrl: string;
+  episodeUrl: string;
+  start: number;
+}
+
 /** Abre el video en mpv o VLC. Devuelve la ruta del ejecutable usado. */
-export const playExternal = (stream: ResolvedStream, title: string, player: ExternalPlayer) =>
-  invoke<string>("play_external", { stream, title, player });
+export const playExternal = (stream: ResolvedStream, title: string, player: ExternalPlayer, seguimiento: ExternalTracking | null = null) =>
+  invoke<string>("play_external", { stream, title, player, seguimiento });
+
+/** Lo pedido en la línea de comandos al abrir la app (sólo la primera vez). */
+export interface StartupAction {
+  busqueda: string | null;
+  continuar: boolean;
+}
+export const startupAction = () => invoke<StartupAction>("startup_action");
+
+/** Historial de ani-es encontrado en este equipo. */
+export interface AniEsFound {
+  ruta: string;
+  animes: number;
+}
+export interface AniEsImport {
+  importados: number;
+  sinEncontrar: string[];
+}
+export const aniEsFound = () => invoke<AniEsFound | null>("ani_es_found");
+export const aniEsImport = () => invoke<AniEsImport>("ani_es_import");
 
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<void>("save_settings", { settings });
@@ -159,7 +190,13 @@ const historyChanged = () => window.dispatchEvent(new Event(HISTORY_EVENT));
 export const LIST_EVENT = "aw:list-changed";
 const listChanged = () => window.dispatchEvent(new Event(LIST_EVENT));
 
+// El backend avisa con "historial" cuando el historial cambia sin pasar por aquí (al cerrar mpv).
+void listen("historial", historyChanged).catch(() => {});
+
 export const historyList = () => invoke<HistoryEntry[]>("history_list");
+/** Por dónde va el episodio (sólo cuenta si es el último marcado de ese animé). */
+export const historyPosition = (animeUrl: string, episodeUrl: string, position: number, duration: number) =>
+  invoke<void>("history_position", { animeUrl, episodeUrl, position, duration });
 export const historyMark = async (mark: HistoryMark) => {
   const entry = await invoke<HistoryEntry>("history_mark", { mark });
   historyChanged();

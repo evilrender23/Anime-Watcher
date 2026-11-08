@@ -6,7 +6,7 @@ import { detailRoute, playerRoute, searchRoute } from "../routes";
 import { copyText, withMenu } from "../contextmenu";
 import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
-import { empty, fact, h, icon, kbd, loadInto, poster, skeleton } from "../ui";
+import { clock, continueLabel, empty, fact, h, icon, kbd, loadInto, poster, skeleton } from "../ui";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -106,7 +106,7 @@ function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
       h(
         "dl",
         { class: "facts" },
-        fact("Último", `EP ${entry.lastEpisode}`),
+        fact("Último", `EP ${entry.lastEpisode}${entry.position ? ` · ${clock(entry.position)}` : ""}`),
         fact("Vistos", String(watched)),
         fact("En biblioteca", String(total)),
       ),
@@ -120,7 +120,7 @@ function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
             onclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
           },
           icon("play"),
-          `Continuar episodio ${entry.lastEpisode}`,
+          continueLabel(entry),
         ),
         h("button", { class: "btn", onclick: () => router.navigate(detailRoute(entry.animeUrl)) }, icon("list"), "Episodios"),
       ),
@@ -128,7 +128,7 @@ function resumePanel(entry: HistoryEntry, total: number): HTMLElement {
   );
   return withMenu(panel, () => [
     {
-      label: `Continuar episodio ${entry.lastEpisode}`,
+      label: continueLabel(entry),
       icon: "play",
       run: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
     },

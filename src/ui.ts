@@ -96,6 +96,20 @@ export function icon(name: IconName, cls = "icon"): SVGSVGElement {
 }
 
 /** Par etiqueta/valor para listas de datos (<dl>). */
+/** 754 → "12:34"; 3754 → "1:02:34". */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return hh ? `${hh}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+}
+
+/** "Continuar episodio 3" o, si iba a medias, "Continuar episodio 3 · 12:34". */
+export function continueLabel(entry: { lastEpisode: number; position?: number }): string {
+  return `Continuar episodio ${entry.lastEpisode}${entry.position ? ` · ${clock(entry.position)}` : ""}`;
+}
+
 export function fact(label: string, value: string | Node): HTMLElement {
   return h("div", { class: "fact" }, h("dt", null, label), h("dd", null, value));
 }

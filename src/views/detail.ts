@@ -4,6 +4,7 @@ import { getAnime, sameUrl } from "../data";
 import { router, type ViewContext } from "../router";
 import { homeRoute, playerRoute } from "../routes";
 import { setCrumbs } from "../shell";
+import { sourceOf } from "../sources";
 import { copyText, withMenu } from "../contextmenu";
 import { listMenuItems, listPanel, peekList, saveEntry } from "../mylist";
 import { sameUrl as same } from "../data";
@@ -86,6 +87,7 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
         ? fact("Emisión", h("span", { class: live ? "status status-live" : "status" }, live ? h("i", { class: "live-dot" }) : null, status))
         : null,
       fact("Episodios", String(episodes.length)),
+      fact("Fuente", sourceOf(detail.url).name),
       entry ? fact("Vistos", `${watchedCount} / ${episodes.length}`) : null,
       entry ? fact("Último", `EP ${entry.lastEpisode}`) : null,
     ),

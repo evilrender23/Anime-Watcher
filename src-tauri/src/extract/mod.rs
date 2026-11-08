@@ -57,6 +57,11 @@ pub enum Host {
     MixDrop,
     Dood,
     Hexload,
+    /// Reproductor propio de JKAnime (`jkanime.net/jkplayer/um`): HLS.
+    JkPlayer,
+    Streamtape,
+    /// Página de descarga de Mediafire: el MP4 completo.
+    Mediafire,
     /// Reproductores JWPlayer/VideoJS con el enlace en la página (lulu, uqload, yourupload, streamwish...).
     Generic,
     /// Cifrado o protegido con captcha (filemoon/byse, mega, ok.ru).
@@ -79,13 +84,19 @@ impl Host {
             Host::MixDrop => 4,
             Host::Dood => 5,
             Host::Hexload => 6,
+            // Su CDN (playmudos) falla a menudo: detrás de los que suelen ir bien.
+            Host::JkPlayer => 3,
+            Host::Streamtape => 6,
+            // Descarga el archivo entero: va bien, pero tarda en empezar a buscar.
+            Host::Mediafire => 7,
             Host::WebOnly => 9,
         }
     }
 }
 
 const DOOD_HOSTS: &[&str] = &["dood", "dsvplay", "playmogo", "d000d", "d0000d", "ds2play", "ds2video", "vidply"];
-const WEB_ONLY_HOSTS: &[&str] = &["mega.nz", "filemoon", "bysekoze", "byse", "ok.ru", "odnoklassniki"];
+/// hgcloud (streamwish de JKAnime) carga el reproductor con un script ofuscado contra bots.
+const WEB_ONLY_HOSTS: &[&str] = &["mega.nz", "filemoon", "bysekoze", "byse", "ok.ru", "odnoklassniki", "hgcloud"];
 
 /// Decide el extractor a partir del nombre del servidor y del dominio del embed.
 pub fn classify(name: &str, url: &str) -> Host {
@@ -96,7 +107,13 @@ pub fn classify(name: &str, url: &str) -> Host {
         .unwrap_or_default();
     let is = |needle: &str| host.contains(needle);
 
-    if is("mp4upload") {
+    if host == "jkanime.net" && url.contains("/jkplayer/") {
+        Host::JkPlayer
+    } else if is("streamtape") || is("strtape") || is("stape") || name == "streamtape" {
+        Host::Streamtape
+    } else if is("mediafire") || name == "mediafire" {
+        Host::Mediafire
+    } else if is("mp4upload") {
         Host::Mp4Upload
     } else if is("voe") || name == "voe" {
         Host::Voe
@@ -129,6 +146,9 @@ async fn resolve_host(client: &Client, host: Host, url: &str) -> Result<Stream> 
         Host::Dood => dood::resolve(client, url).await,
         Host::Hexload => hosts::hexload(client, url).await,
         Host::Generic => hosts::generic(client, url).await,
+        Host::JkPlayer => hosts::jkplayer(client, url).await,
+        Host::Streamtape => hosts::streamtape(client, url).await,
+        Host::Mediafire => hosts::mediafire(client, url).await,
         Host::WebOnly => Err(msg("Este servidor sólo funciona con su reproductor web.")),
     }
 }

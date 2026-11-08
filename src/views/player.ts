@@ -9,12 +9,15 @@ import { detailRoute, homeRoute, playerRoute, settingsRoute } from "../routes";
 import { copyText, withMenu, type MenuItem } from "../contextmenu";
 import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
-import { errMsg, h, icon, kbd, loadInto, poster, type IconName } from "../ui";
+import { clock, errMsg, h, icon, kbd, loadInto, poster, type IconName } from "../ui";
 
 const PLAYER_NAMES: Record<ExternalPlayer, string> = { mpv: "mpv", vlc: "VLC" };
 /** Tiempo máximo para recibir 'loadedmetadata' antes de descartar un servidor. */
 const LOAD_TIMEOUT_MS = 30_000;
 const SEEK_SECONDS = 10;
+/** Cada cuánto se guarda por dónde va el episodio. */
+const SAVE_EVERY_MS = 10_000;
+
 
 type Outcome = { ok: true } | { ok: false; error: string; fatal?: boolean };
 type Mode = "idle" | "builtin" | "external" | "web";
@@ -79,6 +82,33 @@ function mountPlayer(
   let cancelAttempt: (() => void) | null = null;
   let marked = false;
   const failed = new Set<Server>();
+  /** Segundo por el que retomar (el guardado o, al cambiar de servidor, el actual). */
+  let resumeAt = 0;
+  let lastSave = 0;
+  const resumeReady: Promise<void> = info.animeUrl
+    ? api.historyList().then(
+        (list) => {
+          const entry = list.find((e) => sameUrl(e.animeUrl, info.animeUrl!) && sameUrl(e.lastEpisodeUrl, url));
+          resumeAt = entry?.position ?? 0;
+        },
+        () => {},
+      )
+    : Promise.resolve();
+
+  /** Guarda por dónde va el video (como el historial de ani-es). */
+  function savePosition(v: HTMLVideoElement, force = false): void {
+    if (!info.animeUrl || !Number.isFinite(v.currentTime)) return;
+    const now = Date.now();
+    if (!force && now - lastSave < SAVE_EVERY_MS) return;
+    lastSave = now;
+    resumeAt = v.currentTime;
+    const duration = Number.isFinite(v.duration) ? v.duration : 0;
+    void api.historyPosition(info.animeUrl, url, v.currentTime, duration).catch(() => {});
+  }
+
+  /** Para mpv/VLC: retomar donde iba y que mpv devuelva el minuto al cerrarse. */
+  const tracking = (start: number): api.ExternalTracking | null =>
+    info.animeUrl ? { animeUrl: info.animeUrl, episodeUrl: url, start } : null;
 
   // ---- DOM ----
   // Columna principal: título, escenario, barra de control, servidores.
@@ -300,6 +330,7 @@ function mountPlayer(
     if (video) {
       const v = video;
       video = null;
+      if (ready) savePosition(v, true);
       v.pause();
       v.removeAttribute("src");
       v.load();
@@ -313,6 +344,7 @@ function mountPlayer(
   }
 
   async function attemptBuiltin(server: Server, my: number): Promise<Outcome> {
+    await resumeReady;
     let resolved: ResolvedStream;
     try {
       resolved = await api.resolve(server);
@@ -361,9 +393,21 @@ function mountPlayer(
         if (v !== video || started) return;
         started = true;
         ready = true;
+        // Retoma donde lo dejaste, salvo que quede menos de un minuto.
+        const end = Number.isFinite(v.duration) ? v.duration - 60 : Infinity;
+        if (resumeAt > 0 && resumeAt < end) {
+          v.currentTime = resumeAt;
+          say(`Sigues donde lo dejaste (${clock(resumeAt)}). Para empezar de cero: clic derecho → Ver de nuevo.`, "notice");
+        }
         hideOverlay();
         renderControls();
         settle({ ok: true });
+      });
+      v.addEventListener("timeupdate", () => {
+        if (v === video && started && !v.seeking) savePosition(v);
+      });
+      v.addEventListener("pause", () => {
+        if (v === video && started && !v.ended) savePosition(v, true);
       });
       v.addEventListener("playing", () => {
         if (v === video) void markHistory();
@@ -373,7 +417,11 @@ function mountPlayer(
         fail(err?.message || `error del video (código ${err?.code ?? "?"})`);
       });
       v.addEventListener("ended", () => {
-        if (v !== video || !settings.autoNext) return;
+        if (v !== video) return;
+        // Terminado: la próxima vez empieza desde el principio.
+        if (info.animeUrl) void api.historyPosition(info.animeUrl, url, v.duration, v.duration).catch(() => {});
+        resumeAt = 0;
+        if (!settings.autoNext) return;
         const { next } = neighbours();
         if (next) goTo(next);
       });
@@ -413,6 +461,7 @@ function mountPlayer(
   }
 
   async function attemptExternal(server: Server, my: number, player: ExternalPlayer): Promise<Outcome> {
+    await resumeReady;
     let resolved: ResolvedStream;
     try {
       resolved = await api.resolve(server);
@@ -423,7 +472,7 @@ function mountPlayer(
     showStatus(`Abriendo ${PLAYER_NAMES[player]}…`);
     let path: string;
     try {
-      path = await api.playExternal(resolved, externalTitle, player);
+      path = await api.playExternal(resolved, externalTitle, player, tracking(resumeAt));
     } catch (e) {
       // El servidor funciona; lo que falla es el reproductor (no instalado, ruta incorrecta…).
       return { ok: false, error: errMsg(e), fatal: true };
@@ -440,7 +489,11 @@ function mountPlayer(
         icon("tv", "icon external-icon"),
         h("div", { class: "external-title" }, `Reproduciendo en ${PLAYER_NAMES[player]}`),
         h("div", { class: "external-path" }, path),
-        h("div", { class: "external-hint" }, `Servidor: ${server.name}. Usa los controles de abajo para cambiar de episodio.`),
+        h(
+          "div",
+          { class: "external-hint" },
+          `Servidor: ${server.name}.${resumeAt > 0 ? ` Empieza en ${clock(resumeAt)}, donde lo dejaste.` : ""}${player === "mpv" ? " Al cerrar mpv se guarda por dónde ibas." : ""} Usa los controles de abajo para cambiar de episodio.`,
+        ),
       ),
     );
     renderControls();
@@ -614,7 +667,9 @@ function mountPlayer(
   async function launchExternal(s: ResolvedStream, player: ExternalPlayer): Promise<void> {
     say(`Abriendo en ${PLAYER_NAMES[player]}…`);
     try {
-      const path = await api.playExternal(s, externalTitle, player);
+      // Desde el reproductor integrado: sigue en el mismo segundo.
+      const start = video && Number.isFinite(video.currentTime) ? video.currentTime : resumeAt;
+      const path = await api.playExternal(s, externalTitle, player, tracking(start));
       if (!signal.aborted) say(`Abierto en ${PLAYER_NAMES[player]} (${path})`, "ok");
     } catch (e) {
       if (!signal.aborted) say(errMsg(e), "error");

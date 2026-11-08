@@ -5,12 +5,12 @@ import { detailRoute, homeRoute } from "../routes";
 import { copyText, withMenu } from "../contextmenu";
 import { listMenuItems } from "../mylist";
 import { setCrumbs } from "../shell";
+import { SOURCES, sourceOf } from "../sources";
 import { empty, h, loadInto, poster, skeleton } from "../ui";
 
 export function searchView(root: HTMLElement, ctx: ViewContext, query: string): void {
   setCrumbs({ label: "Inicio", onClick: () => router.navigate(homeRoute()) }, "Búsqueda");
-  const count = h("span", { class: "rule-count" });
-  const body = h("div");
+  const body = h("div", { class: "search-sources" });
   root.append(
     h(
       "div",
@@ -21,18 +21,7 @@ export function searchView(root: HTMLElement, ctx: ViewContext, query: string): 
         h("p", { class: "eyebrow" }, "Resultados para"),
         h("h1", { class: "display" }, `“${query}”`),
       ),
-      h(
-        "section",
-        { class: "block" },
-        h(
-          "header",
-          { class: "rule" },
-          h("h2", { class: "rule-title" }, "Animé"),
-          count,
-          h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
-        ),
-        body,
-      ),
+      body,
     ),
   );
 
@@ -41,19 +30,36 @@ export function searchView(root: HTMLElement, ctx: ViewContext, query: string): 
     ctx.signal,
     () => api.search(query),
     (list) => {
-      count.textContent = String(list.length);
       if (!list.length) {
         body.append(
           empty(
-            "No se encontró ningún animé con ese nombre.",
+            "No se encontró ningún animé con ese nombre en MonosChinos ni en JKAnime.",
             "Prueba con el título en japonés o en romaji, o con una sola palabra clave.",
           ),
         );
         return;
       }
-      body.append(h("div", { class: "grid grid-posters" }, list.map((a, i) => animeCard(a, i))));
+      // Una sección por fuente: el mismo animé puede estar en las dos con distintos servidores.
+      for (const source of SOURCES) {
+        const items = list.filter((a) => sourceOf(a.url).id === source.id);
+        if (!items.length) continue;
+        body.append(
+          h(
+            "section",
+            { class: "block" },
+            h(
+              "header",
+              { class: "rule" },
+              h("h2", { class: "rule-title" }, source.name),
+              h("span", { class: "rule-count" }, String(items.length)),
+              h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
+            ),
+            h("div", { class: "grid grid-posters" }, items.map((a, i) => animeCard(a, i))),
+          ),
+        );
+      }
     },
-    "Buscando…",
+    "Buscando en MonosChinos y JKAnime…",
     () => skeleton("posters", 14, "Buscando…"),
   );
 }

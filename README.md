@@ -1,10 +1,13 @@
 # Anime Watcher
 
-Anime Watcher es una aplicación de escritorio para Windows, macOS y Linux para ver animé subtitulado al español. Es una versión actualizada de [nolbap/anicli-es](https://github.com/nolbap/anicli-es) con interfaz gráfica hecha con [Tauri 2](https://tauri.app) y Rust. Al igual que el original, saca los animés de [MonosChinos](https://monoschinos.st), que antes estaba en monoschinos2.com.
+Anime Watcher es una aplicación de escritorio para Windows, macOS y Linux para ver animé subtitulado al español. Es una versión actualizada de [nolbap/anicli-es](https://github.com/nolbap/anicli-es) con interfaz gráfica hecha con [Tauri 2](https://tauri.app) y Rust. Saca los animés de dos fuentes a la vez: [MonosChinos](https://monoschinos.st) (como el original, antes monoschinos2.com) y [JKAnime](https://jkanime.net) (la de [ani-es](https://github.com/Zhuchii/ani-es)).
 
 ## Funciones
 
-- Búsqueda, ficha del animé (sinopsis, géneros, estado) y lista completa de episodios.
+- Búsqueda en MonosChinos y JKAnime a la vez, con los resultados separados por fuente; ficha del animé (sinopsis, géneros, estado) y lista completa de episodios. Si una fuente no responde, se muestra la otra.
+- Sigue donde lo dejaste, como ani-es: guarda el minuto del episodio y lo retoma en el reproductor integrado, en mpv (`--start`, y al cerrar mpv se guarda por dónde ibas) y en VLC. "Continuar viendo" muestra el minuto.
+- Desde la terminal, como ani-es: `anime-watcher naruto` abre la búsqueda, `anime-watcher -c` continúa el último animé y `-h`/`-v` muestran la ayuda y la versión (en Mac y Linux el instalador deja el comando en `~/.local/bin`).
+- Importa el historial de ani-es (`~/ani-es/history.json`, también dentro de WSL en Windows) desde Ajustes, con su episodio y su minuto.
 - Portada con los últimos episodios publicados y la sección "Continuar viendo" (historial local).
 - Reproductor integrado (HLS y MP4) que prueba los servidores en orden y pasa al siguiente si uno falla.
 - Controles del CLI original: anterior, siguiente, ver de nuevo, elegir otro episodio y buscar otro animé.
@@ -17,8 +20,8 @@ Anime Watcher es una aplicación de escritorio para Windows, macOS y Linux para 
 
 | Servidor | Soporte |
 |---|---|
-| voe, mp4upload, savefiles/streamhls, lulu, mixdrop, doodstream/dsvplay, uqload, yourupload, hexload, streamwish y otros con JWPlayer | Directo: reproductor integrado, mpv o VLC |
-| filemoon/byse (piden captcha), mega, ok.ru | Sólo reproductor web: el embed del servidor en un iframe aislado y sin ventanas emergentes, o "Abrir en navegador" |
+| voe, mp4upload, savefiles/streamhls, lulu, mixdrop, doodstream/dsvplay, uqload, yourupload, hexload, vidhide, streamtape, mediafire, el reproductor propio de JKAnime y otros con JWPlayer | Directo: reproductor integrado, mpv o VLC |
+| filemoon/byse (piden captcha), mega, ok.ru, streamwish de JKAnime (hgcloud) | Sólo reproductor web: el embed del servidor en un iframe aislado y sin ventanas emergentes, o "Abrir en navegador" |
 
 Los servidores exigen cabeceras como `Referer`, y el WebView no puede enviarlas. Por eso la app levanta un proxy local en `127.0.0.1` con un puerto aleatorio. Ese proxy añade las cabeceras, deja pasar las peticiones `Range` para poder adelantar el video y reescribe las listas HLS.
 

@@ -1,11 +1,14 @@
 // Sin consola adicional en Windows en las versiones de lanzamiento.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod anies;
+mod cli;
 mod commands;
 mod dns;
 mod error;
 mod extract;
 mod http;
+mod jkanime;
 mod player;
 mod proxy;
 mod site;
@@ -17,6 +20,13 @@ use tauri::Manager;
 use commands::AppState;
 
 fn main() {
+    let inicio = match cli::interpretar(std::env::args().skip(1)) {
+        cli::Accion::Salir(texto) => {
+            print!("{texto}");
+            return;
+        }
+        cli::Accion::Abrir(inicio) => inicio,
+    };
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -28,7 +38,7 @@ fn main() {
             let actualizador = update::Actualizador::default();
             let handle = app.handle().clone();
             actualizador.vigilar(app.handle().clone(), move || handle.state::<AppState>().store.settings().auto_update);
-            app.manage(AppState { http, proxy, store, actualizador });
+            app.manage(AppState { http, proxy, store, actualizador, inicio: std::sync::Mutex::new(Some(inicio)) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,6 +53,7 @@ fn main() {
             commands::detect_players,
             commands::history_list,
             commands::history_mark,
+            commands::history_position,
             commands::history_remove,
             commands::list_all,
             commands::list_save,
@@ -52,6 +63,9 @@ fn main() {
             commands::update_channel,
             commands::update_check,
             commands::update_apply,
+            commands::startup_action,
+            commands::ani_es_found,
+            commands::ani_es_import,
         ])
         .build(tauri::generate_context!())
         .expect("no se pudo iniciar Anime Watcher")

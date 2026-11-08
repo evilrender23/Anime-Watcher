@@ -93,8 +93,19 @@ fn env_path(var: &str, rest: &str) -> Option<PathBuf> {
     std::env::var_os(var).map(|base| Path::new(&base).join(rest))
 }
 
-/// Abre el video en el reproductor y devuelve la ruta del ejecutable usado.
-pub fn launch(player: External, manual: Option<&str>, stream: &Stream, title: &str) -> Result<String> {
+/// Abre el video en el reproductor y devuelve la ruta del ejecutable y el proceso.
+///
+/// - `start`: segundo por el que empezar (0 = desde el principio).
+/// - `minuto`: sólo mpv; carpeta donde mpv deja al cerrarse por dónde iba (`start=<s>` en su
+///   archivo de "ver más tarde"). Ver [`leer_minuto_mpv`].
+pub fn launch(
+    player: External,
+    manual: Option<&str>,
+    stream: &Stream,
+    title: &str,
+    start: f64,
+    minuto: Option<&Path>,
+) -> Result<(String, std::process::Child)> {
     let exe = find(player, manual).ok_or_else(|| {
         msg(format!(
             "No se encontró {}. Instálalo o indica la ruta del ejecutable en Ajustes.",
@@ -108,6 +119,13 @@ pub fn launch(player: External, manual: Option<&str>, stream: &Stream, title: &s
     match player {
         External::Mpv => {
             args.push(format!("--force-media-title={title}"));
+            if start > 0.0 {
+                args.push(format!("--start={}", start.floor()));
+            }
+            if let Some(carpeta) = minuto {
+                args.push("--save-position-on-quit".into());
+                args.push(format!("--watch-later-directory={}", carpeta.display()));
+            }
             if let Some(referer) = referer {
                 args.push(format!("--referrer={referer}"));
             }
@@ -118,6 +136,9 @@ pub fn launch(player: External, manual: Option<&str>, stream: &Stream, title: &s
         }
         External::Vlc => {
             args.push(format!("--meta-title={title}"));
+            if start > 0.0 {
+                args.push(format!("--start-time={}", start.floor()));
+            }
             if let Some(referer) = referer {
                 args.push(format!("--http-referrer={referer}"));
             }
@@ -137,8 +158,37 @@ pub fn launch(player: External, manual: Option<&str>, stream: &Stream, title: &s
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    command
+    let child = command
         .spawn()
         .map_err(|err| msg(format!("No se pudo abrir {}: {err}", player.label())))?;
-    Ok(exe.to_string_lossy().into_owned())
+    Ok((exe.to_string_lossy().into_owned(), child))
+}
+
+/// Por dónde se quedó mpv: lee `start=<segundos>` del archivo que deja en `carpeta` al cerrarse.
+/// Sin archivo, el video terminó (mpv no lo guarda al llegar al final): `Some(0)`.
+pub fn leer_minuto_mpv(carpeta: &Path) -> Option<f64> {
+    let Ok(entradas) = std::fs::read_dir(carpeta) else { return Some(0.0) };
+    let mut minuto = Some(0.0);
+    for entrada in entradas.flatten() {
+        let texto = std::fs::read_to_string(entrada.path()).unwrap_or_default();
+        if let Some(s) = texto.lines().find_map(|l| l.trim().strip_prefix("start=")) {
+            minuto = s.trim().parse().ok();
+        }
+    }
+    minuto
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lee_el_minuto_que_guarda_mpv() {
+        let carpeta = std::env::temp_dir().join(format!("aw-mpv-{}", uuid::Uuid::new_v4()));
+        assert_eq!(leer_minuto_mpv(&carpeta), Some(0.0), "sin carpeta: terminado");
+        std::fs::create_dir_all(&carpeta).unwrap();
+        std::fs::write(carpeta.join("0A1B2C"), "# https://x/video.m3u8\nstart=754.531000\nvolume=80\n").unwrap();
+        assert_eq!(leer_minuto_mpv(&carpeta), Some(754.531));
+        std::fs::remove_dir_all(&carpeta).unwrap();
+    }
 }

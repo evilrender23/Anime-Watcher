@@ -353,6 +353,23 @@ LANZADOR
     return 0
 }
 
+# Mac: `anime-watcher naruto` / `anime-watcher -c` desde la terminal, como ani-es. La app se abre
+# aparte (no ocupa la terminal); -h y -v sí escriben en ella.
+crear_comando_mac() {
+    mkdir -p "$BIN" || return 1
+    rm -f "$BIN/$BINARIO"
+    cat > "$BIN/$BINARIO" <<EOF
+#!/bin/bash
+# Creado por el instalador de Anime Watcher.
+APP="$APP_MAC/Contents/MacOS/$BINARIO"
+case "\${1:-}" in
+    -h|--help|-v|--version) exec "\$APP" "\$@" ;;
+esac
+nohup "\$APP" "\$@" >/dev/null 2>&1 &
+EOF
+    chmod +x "$BIN/$BINARIO"
+}
+
 # Restos de la versión anterior de este instalador en Mac: la app en <destino>/app y el acceso
 # que la abría desde ~/Applications (sólo si es ese acceso, nunca la app de verdad).
 limpiar_mac_antiguo() {
@@ -515,8 +532,9 @@ principal() {
         crear_lanzador_linux || echo 'Aviso: no se pudo crear el lanzador del menú de aplicaciones.'
         limpiar_instalacion_antigua
     else
-        paso 7 'Quitando restos de instalaciones anteriores'
+        paso 7 "Quitando restos de instalaciones anteriores y creando el comando $BINARIO"
         limpiar_mac_antiguo
+        crear_comando_mac || echo "Aviso: no se pudo crear el comando $BIN/$BINARIO."
         # Para que Launchpad y Spotlight la vean al momento.
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_MAC" >/dev/null 2>&1
     fi
@@ -534,7 +552,11 @@ principal() {
             *) printf '\033[33m%s no está en el PATH: añade  export PATH="%s:$PATH"  a tu ~/.bashrc o ~/.zshrc.\033[0m\n' "$BIN" "$BIN" ;;
         esac
     else
-        echo "Ábrelo desde Launchpad, Spotlight o la carpeta Aplicaciones."
+        echo "Ábrelo desde Launchpad, Spotlight, la carpeta Aplicaciones o con:  $BINARIO [búsqueda]"
+        case ":$PATH:" in
+            *":$BIN:"*) ;;
+            *) printf '\033[33m%s no está en el PATH: añade  export PATH="%s:$PATH"  a tu ~/.zshrc.\033[0m\n' "$BIN" "$BIN" ;;
+        esac
     fi
     echo 'Se actualiza sola: cuando haya cambios en GitHub, los compila y los instala al reiniciarla.'
 }

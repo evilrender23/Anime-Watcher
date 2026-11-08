@@ -8,7 +8,7 @@ import { listMenuItems, loadList } from "./mylist";
 import { detailRoute, homeRoute, listRoute, playerRoute, searchRoute, settingsRoute } from "./routes";
 import { copyText, installContextMenu, setGlobalMenu, withMenu } from "./contextmenu";
 import { mountCrumbs } from "./shell";
-import { errMsg, h, icon, poster, toast, type IconName } from "./ui";
+import { errMsg, h, icon, poster, toast, type IconName, clock, continueLabel } from "./ui";
 import { mountUpdater } from "./updater";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ function libraryRow(entry: HistoryEntry): HTMLElement {
       class: active ? "lib-row active" : "lib-row",
       role: "listitem",
       tabIndex: 0,
-      title: `${entry.title} · Episodio ${entry.lastEpisode} (doble clic para continuar)`,
+      title: `${entry.title} · Episodio ${entry.lastEpisode}${entry.position ? ` (${clock(entry.position)})` : ""} · doble clic para continuar`,
       onclick: () => router.navigate(detailRoute(entry.animeUrl)),
       ondblclick: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
       onkeydown: (e) => {
@@ -134,7 +134,7 @@ function libraryRow(entry: HistoryEntry): HTMLElement {
   );
   return withMenu(row, () => [
     {
-      label: `Continuar episodio ${entry.lastEpisode}`,
+      label: continueLabel(entry),
       icon: "play",
       run: () => router.navigate(playerRoute(entry.lastEpisodeUrl, cachedAnime(entry.animeUrl))),
     },
@@ -280,3 +280,18 @@ window.addEventListener("keydown", (e) => {
 });
 
 router.mount(view, homeRoute());
+
+// `anime-watcher naruto` busca; `anime-watcher -c` continúa el último animé (como ani-es).
+void api.startupAction().then(
+  async ({ busqueda, continuar }) => {
+    if (continuar) {
+      const [last] = await api.historyList();
+      if (last) router.navigate(playerRoute(last.lastEpisodeUrl, cachedAnime(last.animeUrl)));
+      else toast("Todavía no has visto nada: no hay nada que continuar.", "info");
+    } else if (busqueda) {
+      searchInput.value = busqueda;
+      router.navigate(searchRoute(busqueda));
+    }
+  },
+  () => {},
+);

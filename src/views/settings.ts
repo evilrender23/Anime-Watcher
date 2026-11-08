@@ -173,6 +173,7 @@ function renderForm(body: HTMLElement, signal: AbortSignal, settings: Settings, 
     ),
     h("div", { class: "settings-save" }, saveBtn),
     updatesGroup(signal, autoUpdate),
+    aniEsGroup(signal),
     group(
       "Reproductores externos",
       "Opcionales. La app los detecta solos o usa la ruta que indiques arriba.",
@@ -277,4 +278,51 @@ function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLEl
     ),
     h("div", { class: "set-status-wrap" }, status, meter),
   );
+}
+
+/** Importar el historial de ani-es (sólo aparece si hay uno en este equipo). */
+function aniEsGroup(signal: AbortSignal): HTMLElement {
+  const box = h("div", { hidden: true });
+  api.aniEsFound().then(
+    (found) => {
+      if (signal.aborted || !found) return;
+      const status = h("p", { class: "set-status", attrs: { "aria-live": "polite" } });
+      const importBtn: HTMLButtonElement = h(
+        "button",
+        {
+          class: "btn btn-sm",
+          onclick: async () => {
+            importBtn.disabled = true;
+            status.className = "set-status";
+            status.textContent = `Buscando ${found.animes} animés en JKAnime…`;
+            try {
+              const r = await api.aniEsImport();
+              if (signal.aborted) return;
+              status.textContent =
+                `Importados ${r.importados} de ${found.animes} a Continuar viendo, con su episodio y minuto.` +
+                (r.sinEncontrar.length ? ` No se encontraron: ${r.sinEncontrar.join(", ")}.` : "");
+              toast(`Historial de ani-es importado (${r.importados}).`, "ok");
+            } catch (e) {
+              status.className = "set-status set-status-error";
+              status.textContent = errMsg(e);
+            } finally {
+              importBtn.disabled = false;
+            }
+          },
+        },
+        icon("download"),
+        "Importar",
+      );
+      box.replaceWith(
+        group(
+          "ani-es",
+          "Si usabas ani-es en la terminal, trae aquí lo que estabas viendo.",
+          row(`Historial con ${found.animes} animés`, h("code", { title: found.ruta }, found.ruta), importBtn),
+          h("div", { class: "set-status-wrap" }, status),
+        ),
+      );
+    },
+    () => {},
+  );
+  return box;
 }

@@ -145,6 +145,75 @@ pub async fn hexload(client: &Client, url: &str) -> Result<Stream> {
     }
 }
 
+// ---------------------------------------------------------------- jkanime (reproductor propio)
+
+static JKPLAYER_URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"url:\s*'(https?://[^']+)'"#).unwrap());
+
+pub async fn jkplayer(client: &Client, url: &str) -> Result<Stream> {
+    let page = get_page(client, url, Some(crate::jkanime::BASE)).await?;
+    let video = JKPLAYER_URL
+        .captures(&page.body)
+        .map(|c| c[1].to_owned())
+        .ok_or_else(|| not_found(&page.url, &page.body))?;
+    Ok(Stream::new(video, Some(format!("{}/", crate::jkanime::BASE))))
+}
+
+// ---------------------------------------------------------------- streamtape
+
+/// `document.getElementById('robotlink').innerHTML = '//streamtape.com/g' + ('xcdet_video?id=..').substring(2).substring(1);`
+/// Hay asignaciones señuelo a otros elementos y el HTML inicial lleva un token falso: vale la
+/// última asignación a `robotlink`.
+static STREAMTAPE_ASIGNACION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"getElementById\('robotlink'\)\.innerHTML\s*=\s*([^;]+);"#).unwrap());
+static STREAMTAPE_TERMINO: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\(?\s*(?:'([^']*)'|"([^"]*)")\s*\)?((?:\.substring\(\d+\))*)"#).unwrap()
+});
+static SUBSTRING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.substring\((\d+)\)").unwrap());
+
+/// Evalúa la suma de cadenas con sus `.substring(n)`.
+fn evaluar_streamtape(expresion: &str) -> String {
+    STREAMTAPE_TERMINO
+        .captures_iter(expresion)
+        .map(|c| {
+            let mut t = c.get(1).or_else(|| c.get(2)).map_or("", |m| m.as_str()).to_owned();
+            for n in SUBSTRING.captures_iter(c.get(3).map_or("", |m| m.as_str())) {
+                let n: usize = n[1].parse().unwrap_or(0);
+                t = t.chars().skip(n).collect();
+            }
+            t
+        })
+        .collect()
+}
+
+pub async fn streamtape(client: &Client, url: &str) -> Result<Stream> {
+    let url = url.replacen("/v/", "/e/", 1);
+    let page = get_page(client, &url, None).await?;
+    let enlace = STREAMTAPE_ASIGNACION
+        .captures_iter(&page.body)
+        .last()
+        .map(|c| evaluar_streamtape(&c[1]))
+        .filter(|e| e.contains("get_video"))
+        .ok_or_else(|| not_found(&page.url, &page.body))?;
+    let enlace = if enlace.starts_with("//") { format!("https:{enlace}") } else { format!("https:/{enlace}") };
+    Ok(Stream::new(format!("{enlace}&stream=1"), Some(origin_of(&page.url))))
+}
+
+// ---------------------------------------------------------------- mediafire
+
+static MEDIAFIRE_LINK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"href="(https?://download\d*\.mediafire\.com/[^"]+)""#).unwrap()
+});
+
+pub async fn mediafire(client: &Client, url: &str) -> Result<Stream> {
+    let page = get_page(client, url, None).await?;
+    let video = MEDIAFIRE_LINK
+        .captures(&page.body)
+        .map(|c| c[1].replace("&amp;", "&"))
+        .ok_or_else(|| not_found(&page.url, &page.body))?;
+    Ok(Stream::new(video, None))
+}
+
 // ---------------------------------------------------------------- genérico
 
 pub async fn generic(client: &Client, url: &str) -> Result<Stream> {
@@ -180,6 +249,14 @@ pub async fn generic(client: &Client, url: &str) -> Result<Stream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evalua_la_ofuscacion_de_streamtape() {
+        let e = r#"'//streamtape.com/g'+ ('xcdet_video?id=AB&token=xy').substring(2).substring(1)"#;
+        assert_eq!(evaluar_streamtape(e), "//streamtape.com/get_video?id=AB&token=xy");
+        let e = r#""//streamtape.com/g" + ''+ ('xyzaet_video?id=AB').substring(4)"#;
+        assert_eq!(evaluar_streamtape(e), "//streamtape.com/get_video?id=AB");
+    }
 
     fn page(body: &str) -> Page {
         Page { url: Url::parse("https://host.example/e/abc").unwrap(), body: body.to_owned() }
