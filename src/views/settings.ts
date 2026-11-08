@@ -233,6 +233,8 @@ function updatesGroup(signal: AbortSignal, autoUpdate: HTMLInputElement): HTMLEl
       if (channel === "release") {
         branch.textContent = "Descargada de GitHub Releases: avisa cuando hay una versión nueva.";
         autoUpdate.disabled = true;
+        // No aplica: estas copias no se compilan solas.
+        autoUpdate.closest("label")?.setAttribute("hidden", "");
         show(updateState());
         return;
       }
