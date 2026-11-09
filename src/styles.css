@@ -2856,3 +2856,132 @@ kbd {
   gap: 6px;
   align-items: center;
 }
+
+/* ==========================================================================
+   Temporadas: grupos de franquicia en la búsqueda y lista en la ficha
+   ========================================================================== */
+
+.franchise + .franchise {
+  margin-top: 28px;
+}
+
+.franchise-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.franchise-name {
+  color: var(--text-2);
+}
+
+.season-badge {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  max-width: calc(100% - 14px);
+  overflow: hidden;
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--bg-sidebar) 82%, transparent);
+  box-shadow: inset 0 0 0 1px var(--stroke-2);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(6px);
+}
+
+.season-movie {
+  color: var(--warm);
+}
+
+.season-extra {
+  color: var(--text-3);
+}
+
+.seasons {
+  margin-bottom: 40px;
+}
+
+.season-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px;
+}
+
+.season-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 1px var(--stroke-3);
+  color: var(--text-1);
+  text-align: left;
+  transition: background 0.12s var(--ease), box-shadow 0.12s var(--ease);
+}
+
+.season-item:hover {
+  background: var(--row-hover);
+}
+
+.season-item.current {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  cursor: default;
+}
+
+.season-thumb {
+  flex: none;
+  width: 34px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-sm);
+}
+
+.season-thumb .media-ph-letter {
+  font-size: 14px;
+}
+
+.season-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.season-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tool);
+  color: var(--accent-text);
+}
+
+.season-label.season-movie {
+  color: var(--warm);
+}
+
+.season-label.season-extra {
+  color: var(--text-3);
+}
+
+.season-title,
+.season-sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.season-title {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.season-sub {
+  color: var(--text-4);
+  font-size: var(--fs-tool);
+}

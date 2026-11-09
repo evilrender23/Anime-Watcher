@@ -1,8 +1,9 @@
 import * as api from "../api";
-import type { AnimeDetail, Episode, HistoryEntry } from "../api";
+import type { AnimeCard, AnimeDetail, Episode, HistoryEntry } from "../api";
 import { getAnime, sameUrl } from "../data";
 import { router, type ViewContext } from "../router";
-import { homeRoute, playerRoute } from "../routes";
+import { detailRoute, homeRoute, playerRoute } from "../routes";
+import { compareSeasons, franchiseKey, franchiseName, seasonInfo } from "../seasons";
 import { setCrumbs } from "../shell";
 import { sourceOf } from "../sources";
 import { copyText, withMenu } from "../contextmenu";
@@ -87,6 +88,7 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
         ? fact("Emisión", h("span", { class: live ? "status status-live" : "status" }, live ? h("i", { class: "live-dot" }) : null, status))
         : null,
       fact("Episodios", String(episodes.length)),
+      detail.season ? fact("Estreno", detail.season) : null,
       fact("Fuente", sourceOf(detail.url).name),
       entry ? fact("Vistos", `${watchedCount} / ${episodes.length}`) : null,
       entry ? fact("Último", `EP ${entry.lastEpisode}`) : null,
@@ -110,13 +112,14 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
     h(
       "header",
       { class: "detail-head" },
-      h("p", { class: "eyebrow" }, "Ficha del animé"),
+      h("p", { class: "eyebrow" }, `Ficha del animé · ${seasonInfo(detail.title, detail.kind).label}`),
       h("h1", { class: "display" }, detail.title),
       detail.altTitle ? h("p", { class: "alt-title" }, detail.altTitle) : null,
       progress,
       detail.synopsis ? h("p", { class: "lede synopsis" }, detail.synopsis.trim()) : null,
       actions,
     ),
+    seasonsSection(detail),
     episodeSection(detail, entry, play),
   );
 
@@ -176,6 +179,111 @@ function renderDetail(page: HTMLElement, detail: AnimeDetail, entry: HistoryEntr
       ];
     });
   }
+}
+
+/** Búsquedas por franquicia ya hechas en esta sesión (clave: fuente + franquicia). */
+const franchiseCache = new Map<string, Promise<AnimeCard[]>>();
+
+/**
+ * Temporadas de la misma serie en la misma fuente: se buscan por el nombre de la franquicia
+ * y se completan con los relacionados que enlaza la ficha (JKAnime). Se carga aparte para no
+ * retrasar la ficha y se oculta si no hay más de una entrega.
+ */
+function seasonsSection(detail: AnimeDetail): HTMLElement {
+  const section = h("section", { class: "block seasons", hidden: true });
+  const key = franchiseKey(detail.title);
+  const source = sourceOf(detail.url).id;
+  if (!key) return section;
+
+  const query = franchiseName([detail.title]);
+  const cacheKey = `${source}:${key}`;
+  const search: Promise<AnimeCard[]> =
+    franchiseCache.get(cacheKey) ??
+    api.search(query).catch((e: unknown): AnimeCard[] => {
+      console.warn("No se pudieron buscar las temporadas", e);
+      franchiseCache.delete(cacheKey);
+      return [];
+    });
+  franchiseCache.set(cacheKey, search);
+
+  // Si la vista ya se cerró, la sección queda fuera del documento y no pasa nada.
+  void search.then((results) => {
+    type Item = { title: string; url: string; cover: string | null; kind: string | null; year: string | null; relation?: string };
+    const items: Item[] = [];
+    const add = (it: Item) => {
+      if (!items.some((x) => same(x.url, it.url))) items.push(it);
+    };
+    add({ title: detail.title, url: detail.url, cover: detail.cover, kind: detail.kind, year: null });
+    for (const r of results) {
+      if (sourceOf(r.url).id === source && franchiseKey(r.title) === key) add({ ...r });
+    }
+    for (const r of detail.related) {
+      add({ title: r.title, url: r.url, cover: null, kind: r.kind, year: null, relation: r.relation });
+    }
+    if (items.length < 2) return;
+    items.sort(compareSeasons);
+
+    const current = items.findIndex((x) => same(x.url, detail.url));
+    const prev = current > 0 ? items[current - 1] : null;
+    const next = current >= 0 ? items[current + 1] ?? null : null;
+    const nav = h(
+      "div",
+      { class: "rule-tools" },
+      prev
+        ? h("button", { class: "btn btn-sm btn-quiet", title: prev.title, onclick: () => router.navigate(detailRoute(prev.url)) }, icon("back"), "Anterior")
+        : null,
+      next
+        ? h("button", { class: "btn btn-sm btn-quiet", title: next.title, onclick: () => router.navigate(detailRoute(next.url)) }, "Siguiente", icon("next"))
+        : null,
+    );
+
+    section.replaceChildren(
+      h(
+        "header",
+        { class: "rule" },
+        h("h2", { class: "rule-title" }, "Temporadas"),
+        h("span", { class: "rule-count" }, String(items.length)),
+        h("span", { class: "rule-line", attrs: { "aria-hidden": "true" } }),
+        nav,
+      ),
+      h(
+        "div",
+        { class: "season-list" },
+        items.map((it, i) => {
+          const info = seasonInfo(it.title, it.kind);
+          const isCurrent = i === current;
+          const sub = [it.relation, it.kind, it.year].filter(Boolean).join(" · ");
+          const el = h(
+            "button",
+            {
+              class: isCurrent ? "season-item current" : "season-item",
+              title: it.title,
+              attrs: isCurrent ? { "aria-current": "page" } : {},
+              onclick: () => !isCurrent && router.navigate(detailRoute(it.url)),
+            },
+            poster(it.cover, it.title, "season-thumb"),
+            h(
+              "span",
+              { class: "season-text" },
+              h("span", { class: `season-label season-${info.category}` }, info.label),
+              h("span", { class: "season-title" }, it.title),
+              sub ? h("span", { class: "season-sub" }, sub) : null,
+            ),
+          );
+          return withMenu(el, () => [
+            { label: "Ver ficha y episodios", icon: "list", disabled: isCurrent, run: () => router.navigate(detailRoute(it.url)) },
+            "-",
+            ...listMenuItems({ animeUrl: it.url, title: it.title, cover: it.cover, total: null }),
+            "-",
+            { label: "Copiar título", icon: "copy", run: () => copyText(it.title) },
+            { label: "Copiar enlace", icon: "link", run: () => copyText(it.url) },
+          ]);
+        }),
+      ),
+    );
+    section.hidden = false;
+  });
+  return section;
 }
 
 function episodeSection(detail: AnimeDetail, entry: HistoryEntry | null, play: (ep: Episode) => void): HTMLElement {

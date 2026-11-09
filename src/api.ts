@@ -37,8 +37,22 @@ export interface AnimeDetail {
   status: string | null;
   genres: string[];
   synopsis: string | null;
+  /** "Anime", "Película", "OVA"… si la fuente lo indica. */
+  kind: string | null;
+  /** Temporada de emisión ("Primavera 2017"). */
+  season: string | null;
+  /** Temporadas y relacionados que enlaza la propia fuente (sólo JKAnime). */
+  related: RelatedAnime[];
   /** Ordenados de forma ascendente por número. */
   episodes: Episode[];
+}
+
+export interface RelatedAnime {
+  title: string;
+  url: string;
+  /** "Precuela", "Secuela", "Adaptación"… */
+  relation: string;
+  kind: string | null;
 }
 
 /**

@@ -20,7 +20,7 @@ use serde::Deserialize;
 use crate::error::{Result, msg};
 use crate::extract::{self, Support};
 use crate::http::get_page;
-use crate::site::{AnimeCard, AnimeDetail, Episode, EpisodeInfo, Server};
+use crate::site::{AnimeCard, AnimeDetail, Episode, EpisodeInfo, Related, Server};
 
 pub const BASE: &str = "https://jkanime.net";
 const MINIATURAS: &str = "https://cdn.jkdesa.com/assets/images/animes/video/image/";
@@ -146,6 +146,12 @@ fn parse_ficha(html: &str, url: &str) -> Result<AnimeDetail> {
         }
     }
     let synopsis = doc.select(&sel(".anime_info p.scroll")).next().map(texto).and_then(no_vacio);
+    let season = dato(&doc, "Temporada")
+        .and_then(|li| li.select(&sel("a")).next().map(texto))
+        .and_then(no_vacio);
+    let kind = dato(&doc, "Tipo")
+        .map(|li| texto(li).trim_start_matches("Tipo:").trim().to_owned())
+        .and_then(no_vacio);
     Ok(AnimeDetail {
         url: url.to_owned(),
         title,
@@ -154,8 +160,46 @@ fn parse_ficha(html: &str, url: &str) -> Result<AnimeDetail> {
         status,
         genres,
         synopsis,
+        kind,
+        season,
+        related: relacionados(&doc),
         episodes: Vec::new(),
     })
+}
+
+static TITULO_Y_TIPO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(.*?)\s*\(([^()]+)\)$").unwrap());
+
+/// Bloque "Temporadas y relacionados": `<h5>Secuela</h5><a href=…>Título (Serie)</a>`.
+fn relacionados(doc: &Html) -> Vec<Related> {
+    let Some(caja) = doc
+        .select(&sel("h3"))
+        .find(|h| texto(*h).to_lowercase().starts_with("temporadas y relacionados"))
+        .and_then(|h| h.parent())
+        .and_then(ElementRef::wrap)
+    else {
+        return Vec::new();
+    };
+    let mut relacion = String::new();
+    let mut lista: Vec<Related> = Vec::new();
+    for hijo in caja.children().filter_map(ElementRef::wrap) {
+        match hijo.value().name() {
+            "h5" => relacion = texto(hijo),
+            "a" => {
+                let Some(url) = hijo.attr("href").filter(|u| es_suya(u)) else { continue };
+                let completo = texto(hijo);
+                let (title, kind) = match TITULO_Y_TIPO.captures(&completo) {
+                    Some(c) => (c[1].to_owned(), Some(c[2].trim().to_owned())),
+                    None => (completo.clone(), None),
+                };
+                if title.is_empty() || lista.iter().any(|r| r.url == url) {
+                    continue;
+                }
+                lista.push(Related { title, url: url.to_owned(), relation: relacion.clone(), kind });
+            }
+            _ => {}
+        }
+    }
+    lista
 }
 
 #[derive(Deserialize)]
@@ -307,13 +351,22 @@ mod tests {
         assert_eq!(r[0].kind.as_deref(), Some("Serie"));
 
         let ficha = r#"<div class="card-bod"><ul><li><span>Generos:</span> <a href="/genero/a/">Drama</a>, <a>Fantasia</a></li>
+            <li><span>Temporada:</span> <a href="https://jkanime.net/temporada/otono-2023">Otoño 2023</a></li>
             <li><span>Estado:</span> <div class="enemision">En emision</div></li></ul></div>
-            <div class="anime_info"><h3>Sousou no Frieren</h3><span>Frieren</span><p class="scroll">Sinopsis.</p></div>"#;
+            <div class="anime_info"><h3>Sousou no Frieren</h3><span>Frieren</span><p class="scroll">Sinopsis.</p></div>
+            <div class="col col-lg-6"><h3 class="mb-3">Temporadas y relacionados</h3>
+            <h5 id="aditional" class="font-weight-bold">Secuela</h5>
+            <a href="https://jkanime.net/sousou-no-frieren-2nd-season/">Sousou no Frieren 2nd Season (Serie) </a> <br></div>"#;
         let f = parse_ficha(ficha, "https://jkanime.net/sousou-no-frieren/").unwrap();
         assert_eq!(f.title, "Sousou no Frieren");
         assert_eq!(f.alt_title.as_deref(), Some("Frieren"));
         assert_eq!(f.status.as_deref(), Some("En emisión"));
         assert_eq!(f.genres, vec!["Drama", "Fantasia"]);
+        assert_eq!(f.season.as_deref(), Some("Otoño 2023"));
+        assert_eq!(f.related.len(), 1);
+        assert_eq!(f.related[0].title, "Sousou no Frieren 2nd Season");
+        assert_eq!(f.related[0].relation, "Secuela");
+        assert_eq!(f.related[0].kind.as_deref(), Some("Serie"));
 
         let episodio = r#"<h1 class="mb-2">Episodio 3 <span class="lang_def"></span> - Sousou no Frieren</h1>
             <script>var servers = [{"remote":"aHR0cHM6Ly92b2Uuc3gvZS9hYmM=","server":"VOE","lang":1},{"remote":"aHR0cHM6Ly9tZWdhLm56L2VtYmVkL3g=","server":"Mega","lang":1}];</script>"#;

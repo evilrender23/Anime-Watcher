@@ -53,7 +53,25 @@ pub struct AnimeDetail {
     pub status: Option<String>,
     pub genres: Vec<String>,
     pub synopsis: Option<String>,
+    /// "Anime", "Película", "OVA"… si la fuente lo indica.
+    pub kind: Option<String>,
+    /// Temporada de emisión ("Primavera 2017").
+    pub season: Option<String>,
+    /// Otras temporadas y relacionados que enlaza la propia fuente (JKAnime).
+    pub related: Vec<Related>,
     pub episodes: Vec<Episode>,
+}
+
+/// Animé enlazado desde una ficha: precuela, secuela, película…
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Related {
+    pub title: String,
+    pub url: String,
+    /// "Precuela", "Secuela", "Adaptación"… tal cual lo escribe la fuente.
+    pub relation: String,
+    /// "Serie", "Pelicula", "OVA"…
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -219,6 +237,8 @@ fn parse_anime(html: &str, url: &str) -> Result<(AnimeDetail, Option<String>)> {
         .select(&sel("section.caplist[data-ajax]"))
         .next()
         .and_then(|s| s.attr("data-ajax").map(str::to_owned));
+    let kind = info_field(&doc, "Tipo");
+    let season = info_field(&doc, "Temporada");
 
     let detail = AnimeDetail {
         url: url.to_owned(),
@@ -228,9 +248,22 @@ fn parse_anime(html: &str, url: &str) -> Result<(AnimeDetail, Option<String>)> {
         status,
         genres,
         synopsis,
+        kind,
+        season,
+        related: Vec::new(),
         episodes: Vec::new(),
     };
     Ok((detail, ajax))
+}
+
+/// Valor de la pestaña "Información": `<dt>Temporada</dt><dd>Primavera 2017</dd>`.
+fn info_field(doc: &Html, label: &str) -> Option<String> {
+    let dt = doc.select(&sel("dl dt")).find(|dt| text_of(*dt).eq_ignore_ascii_case(label))?;
+    let dd = dt.next_siblings().find_map(ElementRef::wrap)?;
+    if dd.value().name() != "dd" {
+        return None;
+    }
+    non_empty(text_of(dd))
 }
 
 #[derive(Deserialize)]
@@ -342,4 +375,36 @@ fn host_name(url: &str) -> String {
         .ok()
         .and_then(|u| u.host_str().map(str::to_owned))
         .unwrap_or_else(|| "servidor".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lee_tipo_y_temporada() {
+        let html = r#"<h1>Shingeki no Kyojin Temporada 2</h1><div>Attack on Titan Season 2</div>
+            <dl><dt class="a">Tipo</dt><dd>Anime</dd> <dt>Estado</dt><dd>Finalizado</dd>
+            <dt>Temporada</dt><dd class="x">Primavera 2017</dd></dl>"#;
+        let (d, _) = parse_anime(html, "https://monoschinos.st/anime/x").unwrap();
+        assert_eq!(d.kind.as_deref(), Some("Anime"));
+        assert_eq!(d.season.as_deref(), Some("Primavera 2017"));
+        assert!(d.related.is_empty());
+    }
+
+    /// `cargo test -- --ignored temporadas_real --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn temporadas_real() {
+        let c = crate::http::scraper_client().unwrap();
+        let m = anime(&c, "https://monoschinos.st/anime/Shingeki-no-Kyojin-temporada-2-sub-espanol").await.unwrap();
+        println!("monos: {} · {:?} · {:?} · {} eps", m.title, m.kind, m.season, m.episodes.len());
+        assert_eq!(m.season.as_deref(), Some("Primavera 2017"));
+        let j = crate::jkanime::anime(&c, "https://jkanime.net/shingeki-no-kyojin-season-2/").await.unwrap();
+        println!("jk: {} · {:?} · {:?}", j.title, j.kind, j.season);
+        for r in &j.related {
+            println!("  {} → {} ({:?}) {}", r.relation, r.title, r.kind, r.url);
+        }
+        assert!(j.related.iter().any(|r| r.relation == "Secuela"));
+    }
 }

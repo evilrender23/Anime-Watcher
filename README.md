@@ -5,6 +5,7 @@ Anime Watcher es una aplicación de escritorio para Windows, macOS y Linux para 
 ## Funciones
 
 - Búsqueda en MonosChinos y JKAnime a la vez, con los resultados separados por fuente; ficha del animé (sinopsis, géneros, estado) y lista completa de episodios. Si una fuente no responde, se muestra la otra.
+- Categorizado por temporadas: en la búsqueda, las temporadas, películas y OVAs de una misma serie salen agrupadas y en orden de visionado, cada una con su etiqueta ("Temporada 2", "Temporada final · Parte 2", "Película 1"…). La ficha muestra la temporada de estreno y una sección "Temporadas" con las demás entregas de la serie (más precuelas y secuelas que enlaza JKAnime) para saltar a la anterior o la siguiente.
 - Sigue donde lo dejaste, como ani-es: guarda el minuto del episodio y lo retoma en el reproductor integrado, en mpv (`--start`, y al cerrar mpv se guarda por dónde ibas) y en VLC. "Continuar viendo" muestra el minuto.
 - Desde la terminal, como ani-es: `anime-watcher naruto` abre la búsqueda, `anime-watcher -c` continúa el último animé y `-h`/`-v` muestran la ayuda y la versión (en Mac y Linux el instalador deja el comando en `~/.local/bin`).
 - Importa el historial de ani-es (`~/ani-es/history.json`, también dentro de WSL en Windows) desde Ajustes, con su episodio y su minuto.
